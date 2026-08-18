@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, MapPin, ShoppingBag, TrendingUp, MessageCircle } from 'lucide-react-native';
 import { COLORS } from '@/constants/Colors';
-import { MOCK_LISTINGS } from '@/utils/mockData';
+import { fetchSellerProfile, fetchSellerListings, ListingWithSeller } from '@/utils/supabase';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { ListingCard } from '@/components/ListingCard';
 import { StarRating } from '@/components/StarRating';
@@ -22,6 +22,18 @@ function resolveImageSource(source: string | undefined): ImageSourcePropType {
   return { uri: source };
 }
 
+type SellerProfile = {
+  id: string;
+  display_name: string;
+  avatar_url: string | null;
+  region: string | null;
+  rating: number | null;
+  total_listings: number | null;
+  total_sales: number | null;
+  response_rate: number | null;
+  created_at: string | null;
+};
+
 export default function SellerProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -30,18 +42,29 @@ export default function SellerProfileScreen() {
   const headerOpacity = useRef(new Animated.Value(0)).current;
   const headerTranslateY = useRef(new Animated.Value(16)).current;
 
-  const sellerListings = MOCK_LISTINGS.filter((l) => l.sellerId === id);
-  const seller = sellerListings[0] ?? MOCK_LISTINGS[0];
-
-  const activeListings = sellerListings.filter((l) => l.status === 'active');
-  const soldListings = sellerListings.filter((l) => l.status === 'sold');
+  const [profile, setProfile] = useState<SellerProfile | null>(null);
+  const [listings, setListings] = useState<ListingWithSeller[]>([]);
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(headerOpacity, { toValue: 1, duration: 400, delay: 100, useNativeDriver: true }),
-      Animated.timing(headerTranslateY, { toValue: 0, duration: 400, delay: 100, useNativeDriver: true }),
-    ]).start();
-  }, [headerOpacity, headerTranslateY]);
+    if (!id) return;
+    console.log('[SellerProfile] Fetching profile and listings for:', id);
+
+    Promise.all([
+      fetchSellerProfile(id),
+      fetchSellerListings(id),
+    ])
+      .then(([profileData, listingsData]) => {
+        setProfile(profileData as SellerProfile);
+        setListings(listingsData);
+        Animated.parallel([
+          Animated.timing(headerOpacity, { toValue: 1, duration: 400, delay: 100, useNativeDriver: true }),
+          Animated.timing(headerTranslateY, { toValue: 0, duration: 400, delay: 100, useNativeDriver: true }),
+        ]).start();
+      })
+      .catch((err) => {
+        console.error('[SellerProfile] fetch error:', err);
+      });
+  }, [id]);
 
   const cardWidth = (width - 16 * 2 - 12) / 2;
 
@@ -52,15 +75,16 @@ export default function SellerProfileScreen() {
 
   const handleMessage = () => {
     console.log('[SellerProfile] Message seller pressed:', id);
-    router.push('/chat/c1');
+    router.push('/chat/c0000000-0000-0000-0000-000000000001');
   };
 
-  const sellerName = seller.sellerName;
-  const sellerRegion = seller.sellerRegion;
-  const sellerRating = seller.sellerRating;
-  const sellerAvatar = seller.sellerAvatar;
-  const activeCount = activeListings.length;
-  const soldCount = soldListings.length;
+  const sellerName = profile?.display_name ?? '';
+  const sellerRegion = profile?.region ?? '';
+  const sellerRating = profile?.rating ?? 0;
+  const sellerAvatar = profile?.avatar_url ?? undefined;
+  const activeCount = profile?.total_listings ?? listings.length;
+  const soldCount = profile?.total_sales ?? 0;
+  const responseRate = profile?.response_rate != null ? `${Math.round(Number(profile.response_rate))}%` : '—';
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
@@ -187,7 +211,7 @@ export default function SellerProfileScreen() {
               {[
                 { icon: <ShoppingBag size={18} color={COLORS.primary} />, value: String(activeCount), label: 'Listings' },
                 { icon: <TrendingUp size={18} color={COLORS.accent} />, value: String(soldCount), label: 'Sales' },
-                { icon: <MessageCircle size={18} color={COLORS.warning} />, value: '98%', label: 'Response' },
+                { icon: <MessageCircle size={18} color={COLORS.warning} />, value: responseRate, label: 'Response' },
               ].map((stat, i) => (
                 <View
                   key={i}
@@ -265,7 +289,7 @@ export default function SellerProfileScreen() {
           >
             Active Listings
           </Text>
-          {activeListings.length === 0 ? (
+          {listings.length === 0 ? (
             <View
               style={{
                 alignItems: 'center',
@@ -285,7 +309,7 @@ export default function SellerProfileScreen() {
             </View>
           ) : (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-              {activeListings.map((listing, index) => (
+              {listings.map((listing, index) => (
                 <View key={listing.id} style={{ width: cardWidth }}>
                   <ListingCard listing={listing} index={index} />
                 </View>

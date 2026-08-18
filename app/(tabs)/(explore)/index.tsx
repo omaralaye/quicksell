@@ -3,7 +3,6 @@ import {
   View,
   Text,
   ScrollView,
-  FlatList,
   TextInput,
   Animated,
   useWindowDimensions,
@@ -11,7 +10,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Search, Bell, SlidersHorizontal, MapPin } from 'lucide-react-native';
 import { COLORS } from '@/constants/Colors';
-import { MOCK_LISTINGS, CATEGORIES, Listing } from '@/utils/mockData';
+import { CATEGORIES } from '@/utils/mockData';
+import { fetchListings, ListingWithSeller } from '@/utils/supabase';
 import { ListingCard } from '@/components/ListingCard';
 import { SkeletonCard } from '@/components/SkeletonCard';
 import { CategoryChip } from '@/components/CategoryChip';
@@ -23,30 +23,48 @@ export default function ExploreScreen() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
-  const [listings, setListings] = useState<Listing[]>([]);
+  const [listings, setListings] = useState<ListingWithSeller[]>([]);
   const headerOpacity = useRef(new Animated.Value(0)).current;
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setListings(MOCK_LISTINGS);
+  const loadListings = async (category: string, search: string) => {
+    console.log('[Explore] fetchListings', { category, search });
+    setLoading(true);
+    try {
+      const data = await fetchListings(category, search || undefined);
+      setListings(data);
+    } catch (err) {
+      console.error('[Explore] fetchListings error:', err);
+    } finally {
       setLoading(false);
       Animated.timing(headerOpacity, {
         toValue: 1,
         duration: 300,
         useNativeDriver: true,
       }).start();
-    }, 800);
-    return () => clearTimeout(timer);
-  }, [headerOpacity]);
+    }
+  };
 
-  const filteredListings = listings.filter((l) => {
-    const matchesCategory = selectedCategory === 'All' || l.category === selectedCategory;
-    const matchesSearch =
-      searchQuery === '' ||
-      l.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      l.category.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
+  // Initial load
+  useEffect(() => {
+    loadListings('All', '');
+  }, []);
+
+  // Re-fetch when category changes (immediate)
+  useEffect(() => {
+    loadListings(selectedCategory, searchQuery);
+  }, [selectedCategory]);
+
+  // Re-fetch when search changes (debounced 300ms)
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      loadListings(selectedCategory, searchQuery);
+    }, 300);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchQuery]);
 
   const cardWidth = (width - 16 * 2 - 12) / 2;
 
@@ -68,7 +86,7 @@ export default function ExploreScreen() {
     console.log('[Explore] Notification bell pressed');
   };
 
-  const listingCount = filteredListings.length;
+  const listingCount = listings.length;
   const listingCountText = `${listingCount} listing${listingCount !== 1 ? 's' : ''}`;
 
   return (
@@ -238,12 +256,12 @@ export default function ExploreScreen() {
             </View>
           ) : (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-              {filteredListings.map((listing, index) => (
+              {listings.map((listing, index) => (
                 <View key={listing.id} style={{ width: cardWidth }}>
                   <ListingCard listing={listing} index={index} />
                 </View>
               ))}
-              {filteredListings.length === 0 && (
+              {listings.length === 0 && (
                 <View
                   style={{
                     flex: 1,

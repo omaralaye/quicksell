@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, Pencil } from 'lucide-react-native';
 import { COLORS } from '@/constants/Colors';
-import { MY_LISTINGS } from '@/utils/mockData';
+import { fetchMyListings, DEMO_USER_ID, ListingWithSeller } from '@/utils/supabase';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 
 function resolveImageSource(source: string | undefined): ImageSourcePropType {
@@ -22,6 +22,14 @@ function resolveImageSource(source: string | undefined): ImageSourcePropType {
 export default function MyListingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [listings, setListings] = useState<ListingWithSeller[]>([]);
+
+  useEffect(() => {
+    console.log('[MyListings] Fetching listings for:', DEMO_USER_ID);
+    fetchMyListings(DEMO_USER_ID)
+      .then((data) => setListings(data))
+      .catch((err) => console.error('[MyListings] fetchMyListings error:', err));
+  }, []);
 
   const handleBack = () => {
     console.log('[MyListings] Back pressed');
@@ -84,9 +92,9 @@ export default function MyListingsScreen() {
 
         {/* Listings */}
         <View style={{ paddingHorizontal: 16, gap: 12 }}>
-          {MY_LISTINGS.map((listing, index) => {
+          {listings.map((listing, index) => {
             const isActive = listing.status === 'active';
-            const priceDisplay = `$${listing.price.toLocaleString()}`;
+            const priceDisplay = `$${Number(listing.price).toLocaleString()}`;
 
             return (
               <AnimatedListingRow
@@ -108,7 +116,7 @@ export default function MyListingsScreen() {
                   }}
                 >
                   <Image
-                    source={resolveImageSource(listing.image)}
+                    source={resolveImageSource(listing.image_url ?? undefined)}
                     style={{
                       width: 72,
                       height: 72,

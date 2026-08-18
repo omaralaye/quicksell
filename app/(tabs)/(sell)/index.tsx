@@ -7,11 +7,13 @@ import {
   Animated,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Camera, MapPin, Check, ChevronRight } from 'lucide-react-native';
 import { COLORS } from '@/constants/Colors';
 import { CATEGORIES, CONDITIONS } from '@/utils/mockData';
+import { createListing, DEMO_USER_ID } from '@/utils/supabase';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { CategoryChip } from '@/components/CategoryChip';
 
@@ -62,9 +64,24 @@ export default function SellScreen() {
     return () => clearTimeout(timer);
   }, [success, successScale, successOpacity]);
 
-  const handleListItem = () => {
+  const handleListItem = async () => {
     console.log('[Sell] List Item pressed:', { title, price, selectedCategory, selectedCondition, description, location });
-    setSuccess(true);
+    try {
+      await createListing({
+        sellerId: DEMO_USER_ID,
+        title,
+        description,
+        price: parseFloat(price),
+        category: selectedCategory,
+        condition: selectedCondition,
+        region: location,
+      });
+      console.log('[Sell] Listing created successfully');
+      setSuccess(true);
+    } catch (err) {
+      console.error('[Sell] createListing error:', err);
+      Alert.alert('Error', 'Failed to create listing. Please try again.');
+    }
   };
 
   const handleCategorySelect = (cat: string) => {

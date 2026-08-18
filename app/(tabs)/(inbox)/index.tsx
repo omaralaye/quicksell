@@ -1,10 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, Image, Animated, ImageSourcePropType } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MessageCircle, ChevronRight } from 'lucide-react-native';
 import { COLORS } from '@/constants/Colors';
-import { MOCK_CONVERSATIONS, getRelativeTime } from '@/utils/mockData';
+import { getRelativeTime } from '@/utils/mockData';
+import { fetchConversations, DEMO_USER_ID } from '@/utils/supabase';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 
 function resolveImageSource(source: string | undefined): ImageSourcePropType {
@@ -12,11 +13,20 @@ function resolveImageSource(source: string | undefined): ImageSourcePropType {
   return { uri: source };
 }
 
+type ConversationItem = {
+  id: string;
+  other_user: { id: string; display_name: string; avatar_url: string | null } | null;
+  listing: { id: string; title: string; image_url: string | null; price: number } | null;
+  last_message: string | null;
+  last_message_at: string | null;
+  unread: boolean | null;
+};
+
 function ConversationRow({
   conversation,
   index,
 }: {
-  conversation: (typeof MOCK_CONVERSATIONS)[0];
+  conversation: ConversationItem;
   index: number;
 }) {
   const router = useRouter();
@@ -40,10 +50,15 @@ function ConversationRow({
     ]).start();
   }, [opacity, translateY, index]);
 
-  const timeDisplay = getRelativeTime(conversation.lastMessageTime);
+  const timeDisplay = getRelativeTime(conversation.last_message_at ?? '');
+  const otherUserName = conversation.other_user?.display_name ?? 'User';
+  const otherUserAvatar = conversation.other_user?.avatar_url ?? undefined;
+  const listingTitle = conversation.listing?.title ?? '';
+  const listingImage = conversation.listing?.image_url ?? undefined;
+  const isUnread = conversation.unread ?? false;
 
   const handlePress = () => {
-    console.log('[Inbox] Conversation pressed:', conversation.id, conversation.otherUserName);
+    console.log('[Inbox] Conversation pressed:', conversation.id, otherUserName);
     router.push(`/chat/${conversation.id}`);
   };
 
@@ -66,7 +81,7 @@ function ConversationRow({
           {/* Avatar */}
           <View style={{ position: 'relative' }}>
             <Image
-              source={resolveImageSource(conversation.otherUserAvatar)}
+              source={resolveImageSource(otherUserAvatar)}
               style={{
                 width: 52,
                 height: 52,
@@ -74,7 +89,7 @@ function ConversationRow({
                 backgroundColor: COLORS.surfaceSecondary,
               }}
             />
-            {conversation.unread && (
+            {isUnread && (
               <View
                 style={{
                   position: 'absolute',
@@ -93,7 +108,7 @@ function ConversationRow({
 
           {/* Listing thumbnail */}
           <Image
-            source={resolveImageSource(conversation.listingImage)}
+            source={resolveImageSource(listingImage)}
             style={{
               width: 44,
               height: 44,
@@ -113,7 +128,7 @@ function ConversationRow({
                   color: COLORS.text,
                 }}
               >
-                {conversation.otherUserName}
+                {otherUserName}
               </Text>
               <Text
                 style={{
@@ -133,18 +148,18 @@ function ConversationRow({
                 color: COLORS.textSecondary,
               }}
             >
-              {conversation.listingTitle}
+              {listingTitle}
             </Text>
             <Text
               numberOfLines={1}
               style={{
                 fontSize: 13,
                 fontFamily: 'Nunito_400Regular',
-                color: conversation.unread ? COLORS.text : COLORS.textSecondary,
-                fontWeight: conversation.unread ? '600' : '400',
+                color: isUnread ? COLORS.text : COLORS.textSecondary,
+                fontWeight: isUnread ? '600' : '400',
               }}
             >
-              {conversation.lastMessage}
+              {conversation.last_message}
             </Text>
           </View>
 
@@ -157,7 +172,22 @@ function ConversationRow({
 
 export default function InboxScreen() {
   const insets = useSafeAreaInsets();
-  const unreadCount = MOCK_CONVERSATIONS.filter((c) => c.unread).length;
+  const [conversations, setConversations] = useState<ConversationItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    console.log('[Inbox] Fetching conversations for:', DEMO_USER_ID);
+    fetchConversations(DEMO_USER_ID)
+      .then((data) => {
+        setConversations(data as ConversationItem[]);
+      })
+      .catch((err) => {
+        console.error('[Inbox] fetchConversations error:', err);
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const unreadCount = conversations.filter((c) => c.unread).length;
   const unreadText = unreadCount > 0 ? `${unreadCount} unread` : '';
 
   return (
@@ -199,7 +229,7 @@ export default function InboxScreen() {
           )}
         </View>
 
-        {MOCK_CONVERSATIONS.length === 0 ? (
+        {!loading && conversations.length === 0 ? (
           <View
             style={{
               alignItems: 'center',
@@ -245,7 +275,7 @@ export default function InboxScreen() {
           </View>
         ) : (
           <View style={{ paddingHorizontal: 16, gap: 10 }}>
-            {MOCK_CONVERSATIONS.map((conv, index) => (
+            {conversations.map((conv, index) => (
               <ConversationRow key={conv.id} conversation={conv} index={index} />
             ))}
           </View>

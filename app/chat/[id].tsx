@@ -13,7 +13,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, Send } from 'lucide-react-native';
 import { COLORS } from '@/constants/Colors';
-import { MOCK_CONVERSATIONS, MOCK_MESSAGES, Message } from '@/utils/mockData';
+import { fetchMessages, fetchConversations, sendMessage, DEMO_USER_ID, MessageRow } from '@/utils/supabase';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 
 function resolveImageSource(source: string | undefined): ImageSourcePropType {
@@ -21,23 +21,42 @@ function resolveImageSource(source: string | undefined): ImageSourcePropType {
   return { uri: source };
 }
 
+type ConversationDetail = {
+  id: string;
+  listing_id: string | null;
+  listing: { id: string; title: string; image_url: string | null; price: number } | null;
+  other_user: { id: string; display_name: string; avatar_url: string | null } | null;
+};
+
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
   const [inputText, setInputText] = useState('');
-
-  const conversation = MOCK_CONVERSATIONS.find((c) => c.id === id);
-  const [messages, setMessages] = useState<Message[]>(
-    MOCK_MESSAGES[id ?? ''] ?? []
-  );
+  const [messages, setMessages] = useState<MessageRow[]>([]);
+  const [conversation, setConversation] = useState<ConversationDetail | null>(null);
 
   useEffect(() => {
-    setTimeout(() => {
-      scrollRef.current?.scrollToEnd({ animated: false });
-    }, 100);
-  }, []);
+    if (!id) return;
+    console.log('[Chat] Loading conversation and messages for:', id);
+
+    Promise.all([
+      fetchConversations(DEMO_USER_ID),
+      fetchMessages(id),
+    ])
+      .then(([convs, msgs]) => {
+        const found = (convs as ConversationDetail[]).find((c) => c.id === id) ?? null;
+        setConversation(found);
+        setMessages(msgs);
+        setTimeout(() => {
+          scrollRef.current?.scrollToEnd({ animated: false });
+        }, 100);
+      })
+      .catch((err) => {
+        console.error('[Chat] load error:', err);
+      });
+  }, [id]);
 
   const handleBack = () => {
     console.log('[Chat] Back pressed');
@@ -45,32 +64,32 @@ export default function ChatScreen() {
   };
 
   const handleListingPress = () => {
-    if (conversation) {
-      console.log('[Chat] Listing preview pressed:', conversation.listingId);
-      router.push(`/listing/${conversation.listingId}`);
+    if (conversation?.listing_id) {
+      console.log('[Chat] Listing preview pressed:', conversation.listing_id);
+      router.push(`/listing/${conversation.listing_id}`);
     }
   };
 
-  const handleSend = () => {
-    if (!inputText.trim()) return;
-    console.log('[Chat] Send message pressed:', inputText.trim());
-    const newMessage: Message = {
-      id: `m${Date.now()}`,
-      senderId: 'me',
-      text: inputText.trim(),
-      time: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, newMessage]);
+  const handleSend = async () => {
+    if (!inputText.trim() || !id) return;
+    const text = inputText.trim();
+    console.log('[Chat] Send message pressed:', text);
     setInputText('');
-    setTimeout(() => {
-      scrollRef.current?.scrollToEnd({ animated: true });
-    }, 100);
+    try {
+      const newMsg = await sendMessage(id, DEMO_USER_ID, text);
+      setMessages((prev) => [...prev, newMsg]);
+      setTimeout(() => {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    } catch (err) {
+      console.error('[Chat] sendMessage error:', err);
+    }
   };
 
-  const otherUserName = conversation?.otherUserName ?? 'Seller';
-  const listingTitle = conversation?.listingTitle ?? '';
-  const listingImage = conversation?.listingImage;
-  const otherUserAvatar = conversation?.otherUserAvatar;
+  const otherUserName = conversation?.other_user?.display_name ?? 'Seller';
+  const listingTitle = conversation?.listing?.title ?? '';
+  const listingImage = conversation?.listing?.image_url ?? undefined;
+  const otherUserAvatar = conversation?.other_user?.avatar_url ?? undefined;
 
   return (
     <KeyboardAvoidingView
@@ -199,7 +218,7 @@ export default function ChatScreen() {
         showsVerticalScrollIndicator={false}
       >
         {messages.map((msg) => {
-          const isMe = msg.senderId === 'me';
+          const isMe = msg.sender_id === DEMO_USER_ID;
           return (
             <View
               key={msg.id}

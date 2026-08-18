@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -12,10 +12,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, Star, ChevronRight, Tag, MessageCircle, DollarSign } from 'lucide-react-native';
 import { BlurView } from 'expo-blur';
 import { COLORS } from '@/constants/Colors';
-import { MOCK_LISTINGS, getRelativeTime } from '@/utils/mockData';
+import { getRelativeTime } from '@/utils/mockData';
+import { fetchListing, ListingWithSeller } from '@/utils/supabase';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { ConditionBadge } from '@/components/ConditionBadge';
 import { StarRating } from '@/components/StarRating';
+
+const DEMO_CHAT_ID = 'c0000000-0000-0000-0000-000000000001';
 
 function resolveImageSource(source: string | undefined): ImageSourcePropType {
   if (!source) return { uri: '' };
@@ -29,14 +32,53 @@ export default function ListingDetailScreen() {
   const contentOpacity = useRef(new Animated.Value(0)).current;
   const contentTranslateY = useRef(new Animated.Value(20)).current;
 
-  const listing = MOCK_LISTINGS.find((l) => l.id === id);
+  const [listing, setListing] = useState<ListingWithSeller | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(contentOpacity, { toValue: 1, duration: 400, delay: 100, useNativeDriver: true }),
-      Animated.timing(contentTranslateY, { toValue: 0, duration: 400, delay: 100, useNativeDriver: true }),
-    ]).start();
-  }, [contentOpacity, contentTranslateY]);
+    if (!id) return;
+    console.log('[ListingDetail] Fetching listing:', id);
+    fetchListing(id)
+      .then((data) => {
+        setListing(data);
+        Animated.parallel([
+          Animated.timing(contentOpacity, { toValue: 1, duration: 400, delay: 100, useNativeDriver: true }),
+          Animated.timing(contentTranslateY, { toValue: 0, duration: 400, delay: 100, useNativeDriver: true }),
+        ]).start();
+      })
+      .catch((err) => {
+        console.error('[ListingDetail] fetchListing error:', err);
+      })
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  const handleBack = () => {
+    console.log('[ListingDetail] Back pressed');
+    router.back();
+  };
+
+  const handleViewProfile = () => {
+    const sellerId = listing?.seller?.id;
+    console.log('[ListingDetail] View seller profile:', sellerId);
+    if (sellerId) router.push(`/seller/${sellerId}`);
+  };
+
+  const handleMessage = () => {
+    console.log('[ListingDetail] Message Seller pressed for listing:', listing?.id);
+    router.push(`/chat/${DEMO_CHAT_ID}`);
+  };
+
+  const handleOffer = () => {
+    console.log('[ListingDetail] Make Offer pressed for listing:', listing?.id, 'price:', listing?.price);
+  };
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: COLORS.background, alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ fontFamily: 'Nunito_600SemiBold', color: COLORS.textSecondary }}>Loading…</Text>
+      </View>
+    );
+  }
 
   if (!listing) {
     return (
@@ -46,27 +88,12 @@ export default function ListingDetailScreen() {
     );
   }
 
-  const postedDate = getRelativeTime(listing.createdAt);
-  const priceDisplay = `$${listing.price.toLocaleString()}`;
-
-  const handleBack = () => {
-    console.log('[ListingDetail] Back pressed');
-    router.back();
-  };
-
-  const handleViewProfile = () => {
-    console.log('[ListingDetail] View seller profile:', listing.sellerId);
-    router.push(`/seller/${listing.sellerId}`);
-  };
-
-  const handleMessage = () => {
-    console.log('[ListingDetail] Message Seller pressed for listing:', listing.id);
-    router.push(`/chat/c1`);
-  };
-
-  const handleOffer = () => {
-    console.log('[ListingDetail] Make Offer pressed for listing:', listing.id, 'price:', listing.price);
-  };
+  const postedDate = getRelativeTime(listing.created_at ?? '');
+  const priceDisplay = `$${Number(listing.price).toLocaleString()}`;
+  const sellerName = listing.seller?.display_name ?? 'Seller';
+  const sellerRegion = listing.seller?.region ?? '';
+  const sellerRating = listing.seller?.rating ?? 0;
+  const sellerAvatar = listing.seller?.avatar_url ?? undefined;
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
@@ -77,7 +104,7 @@ export default function ListingDetailScreen() {
         {/* Hero image */}
         <View style={{ position: 'relative' }}>
           <Image
-            source={resolveImageSource(listing.image)}
+            source={resolveImageSource(listing.image_url ?? undefined)}
             resizeMode="cover"
             style={{ width: '100%', height: 300 }}
           />
@@ -192,7 +219,7 @@ export default function ListingDetailScreen() {
               }}
             >
               <Image
-                source={resolveImageSource(listing.sellerAvatar)}
+                source={resolveImageSource(sellerAvatar)}
                 style={{
                   width: 48,
                   height: 48,
@@ -209,7 +236,7 @@ export default function ListingDetailScreen() {
                     color: COLORS.text,
                   }}
                 >
-                  {listing.sellerName}
+                  {sellerName}
                 </Text>
                 <Text
                   style={{
@@ -218,9 +245,9 @@ export default function ListingDetailScreen() {
                     color: COLORS.textSecondary,
                   }}
                 >
-                  {listing.sellerRegion}
+                  {sellerRegion}
                 </Text>
-                <StarRating rating={listing.sellerRating} size={13} />
+                <StarRating rating={sellerRating} size={13} />
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <Text

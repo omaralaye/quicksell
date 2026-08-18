@@ -4,11 +4,10 @@ import { useRouter } from 'expo-router';
 import { MapPin } from 'lucide-react-native';
 import { COLORS } from '@/constants/Colors';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
-import { ConditionBadge } from '@/components/ConditionBadge';
-import { Listing } from '@/utils/mockData';
+import { ListingWithSeller } from '@/utils/supabase';
 
 interface ListingCardProps {
-  listing: Listing;
+  listing: ListingWithSeller;
   index: number;
 }
 
@@ -40,8 +39,9 @@ export function ListingCard({ listing, index }: ListingCardProps) {
     ]).start();
   }, [opacity, translateY, index]);
 
-  const priceDisplay = `$${listing.price.toLocaleString()}`;
+  const priceDisplay = `$${Number(listing.price).toLocaleString()}`;
   const distanceDisplay = `~${(0.3 + index * 0.25).toFixed(1)} mi`;
+  const sellerName = listing.seller?.display_name ?? '';
 
   const handlePress = () => {
     console.log('[ListingCard] Pressed listing:', listing.id, listing.title);
@@ -65,7 +65,7 @@ export function ListingCard({ listing, index }: ListingCardProps) {
           {/* Image */}
           <View style={{ position: 'relative' }}>
             <Image
-              source={resolveImageSource(listing.image)}
+              source={resolveImageSource(listing.image_url ?? undefined)}
               resizeMode="cover"
               style={{ width: '100%', aspectRatio: 1 }}
             />
@@ -161,7 +161,7 @@ export function ListingCard({ listing, index }: ListingCardProps) {
                 color: COLORS.textSecondary,
               }}
             >
-              {listing.sellerName}
+              {sellerName}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 }}>
               <MapPin size={11} color={COLORS.textTertiary} />
