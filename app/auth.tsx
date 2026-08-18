@@ -13,6 +13,7 @@ import {
 import { useRouter, Redirect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
+import { COLORS } from '@/constants/Colors';
 
 type Mode = 'signin' | 'signup';
 
@@ -94,11 +95,11 @@ export default function AuthScreen() {
   const buttonLabel = isSignUp ? 'Create Account' : 'Sign In';
 
   const inputStyle = (focused: boolean) => ({
-    backgroundColor: '#1A1A1A',
+    backgroundColor: COLORS.surfaceSecondary,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: focused ? '#FF6B35' : '#2A2A2A',
-    color: '#FFFFFF' as const,
+    borderColor: focused ? COLORS.primary : COLORS.border,
+    color: COLORS.text as const,
     fontSize: 16,
     fontFamily: 'Nunito_400Regular',
     height: 52,
@@ -107,7 +108,7 @@ export default function AuthScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: '#0F0F0F' }}
+      style={{ flex: 1, backgroundColor: COLORS.background }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
@@ -126,7 +127,7 @@ export default function AuthScreen() {
             style={{
               fontSize: 36,
               fontFamily: 'Nunito_800ExtraBold',
-              color: '#FF6B35',
+              color: COLORS.primary,
               letterSpacing: -1,
             }}
           >
@@ -136,7 +137,7 @@ export default function AuthScreen() {
             style={{
               fontSize: 15,
               fontFamily: 'Nunito_400Regular',
-              color: '#888888',
+              color: COLORS.textSecondary,
               marginTop: 8,
             }}
           >
@@ -148,7 +149,7 @@ export default function AuthScreen() {
         <View
           style={{
             flexDirection: 'row',
-            backgroundColor: '#1A1A1A',
+            backgroundColor: COLORS.surfaceSecondary,
             borderRadius: 12,
             padding: 4,
             marginBottom: 28,
@@ -161,7 +162,7 @@ export default function AuthScreen() {
               borderRadius: 9,
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: mode === 'signin' ? '#FF6B35' : 'transparent',
+              backgroundColor: mode === 'signin' ? COLORS.primary : 'transparent',
             }}
             onPress={() => handleModeSwitch('signin')}
             activeOpacity={0.8}
@@ -170,7 +171,7 @@ export default function AuthScreen() {
               style={{
                 fontSize: 14,
                 fontFamily: 'Nunito_700Bold',
-                color: mode === 'signin' ? '#FFFFFF' : '#888888',
+                color: mode === 'signin' ? COLORS.surface : COLORS.textSecondary,
               }}
             >
               Sign In
@@ -183,7 +184,7 @@ export default function AuthScreen() {
               borderRadius: 9,
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: mode === 'signup' ? '#FF6B35' : 'transparent',
+              backgroundColor: mode === 'signup' ? COLORS.primary : 'transparent',
             }}
             onPress={() => handleModeSwitch('signup')}
             activeOpacity={0.8}
@@ -192,7 +193,7 @@ export default function AuthScreen() {
               style={{
                 fontSize: 14,
                 fontFamily: 'Nunito_700Bold',
-                color: mode === 'signup' ? '#FFFFFF' : '#888888',
+                color: mode === 'signup' ? COLORS.surface : COLORS.textSecondary,
               }}
             >
               Sign Up
@@ -210,7 +211,7 @@ export default function AuthScreen() {
                 setName(t);
               }}
               placeholder="Full Name"
-              placeholderTextColor="#555555"
+              placeholderTextColor={COLORS.textTertiary}
               autoCapitalize="words"
               style={inputStyle(nameFocused)}
               onFocus={() => setNameFocused(true)}
@@ -224,7 +225,7 @@ export default function AuthScreen() {
               setEmail(t);
             }}
             placeholder="Email"
-            placeholderTextColor="#555555"
+            placeholderTextColor={COLORS.textTertiary}
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
@@ -239,7 +240,7 @@ export default function AuthScreen() {
               setPassword(t);
             }}
             placeholder="Password"
-            placeholderTextColor="#555555"
+            placeholderTextColor={COLORS.textTertiary}
             secureTextEntry
             style={inputStyle(passwordFocused)}
             onFocus={() => setPasswordFocused(true)}
@@ -253,7 +254,7 @@ export default function AuthScreen() {
             style={{
               fontSize: 13,
               fontFamily: 'Nunito_400Regular',
-              color: '#FF4444',
+              color: COLORS.danger,
               marginTop: 12,
               textAlign: 'center',
             }}
@@ -268,7 +269,7 @@ export default function AuthScreen() {
           disabled={loading}
           activeOpacity={0.85}
           style={{
-            backgroundColor: '#FF6B35',
+            backgroundColor: COLORS.primary,
             borderRadius: 14,
             height: 52,
             alignItems: 'center',
