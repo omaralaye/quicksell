@@ -13,12 +13,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Camera, MapPin, Check, ChevronRight } from 'lucide-react-native';
 import { COLORS } from '@/constants/Colors';
 import { CATEGORIES, CONDITIONS } from '@/utils/mockData';
-import { createListing, DEMO_USER_ID } from '@/utils/supabase';
+import { createListing } from '@/utils/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { CategoryChip } from '@/components/CategoryChip';
 
 export default function SellScreen() {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
@@ -66,9 +68,13 @@ export default function SellScreen() {
 
   const handleListItem = async () => {
     console.log('[Sell] List Item pressed:', { title, price, selectedCategory, selectedCondition, description, location });
+    if (!user) {
+      Alert.alert('Error', 'You must be signed in to list an item.');
+      return;
+    }
     try {
       await createListing({
-        sellerId: DEMO_USER_ID,
+        sellerId: user.id,
         title,
         description,
         price: parseFloat(price),

@@ -11,7 +11,8 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, Pencil } from 'lucide-react-native';
 import { COLORS } from '@/constants/Colors';
-import { fetchMyListings, DEMO_USER_ID, ListingWithSeller } from '@/utils/supabase';
+import { fetchMyListings, ListingWithSeller } from '@/utils/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 
 function resolveImageSource(source: string | undefined): ImageSourcePropType {
@@ -22,14 +23,16 @@ function resolveImageSource(source: string | undefined): ImageSourcePropType {
 export default function MyListingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [listings, setListings] = useState<ListingWithSeller[]>([]);
 
   useEffect(() => {
-    console.log('[MyListings] Fetching listings for:', DEMO_USER_ID);
-    fetchMyListings(DEMO_USER_ID)
+    if (!user) return;
+    console.log('[MyListings] Fetching listings for:', user.id);
+    fetchMyListings(user.id)
       .then((data) => setListings(data))
       .catch((err) => console.error('[MyListings] fetchMyListings error:', err));
-  }, []);
+  }, [user]);
 
   const handleBack = () => {
     console.log('[MyListings] Back pressed');

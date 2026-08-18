@@ -13,7 +13,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, Send } from 'lucide-react-native';
 import { COLORS } from '@/constants/Colors';
-import { fetchMessages, fetchConversations, sendMessage, DEMO_USER_ID, MessageRow } from '@/utils/supabase';
+import { fetchMessages, fetchConversations, sendMessage, MessageRow } from '@/utils/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 
 function resolveImageSource(source: string | undefined): ImageSourcePropType {
@@ -32,17 +33,18 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const scrollRef = useRef<ScrollView>(null);
   const [inputText, setInputText] = useState('');
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [conversation, setConversation] = useState<ConversationDetail | null>(null);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || !user) return;
     console.log('[Chat] Loading conversation and messages for:', id);
 
     Promise.all([
-      fetchConversations(DEMO_USER_ID),
+      fetchConversations(user.id),
       fetchMessages(id),
     ])
       .then(([convs, msgs]) => {
@@ -56,7 +58,7 @@ export default function ChatScreen() {
       .catch((err) => {
         console.error('[Chat] load error:', err);
       });
-  }, [id]);
+  }, [id, user]);
 
   const handleBack = () => {
     console.log('[Chat] Back pressed');
@@ -71,12 +73,12 @@ export default function ChatScreen() {
   };
 
   const handleSend = async () => {
-    if (!inputText.trim() || !id) return;
+    if (!inputText.trim() || !id || !user) return;
     const text = inputText.trim();
     console.log('[Chat] Send message pressed:', text);
     setInputText('');
     try {
-      const newMsg = await sendMessage(id, DEMO_USER_ID, text);
+      const newMsg = await sendMessage(id, user.id, text);
       setMessages((prev) => [...prev, newMsg]);
       setTimeout(() => {
         scrollRef.current?.scrollToEnd({ animated: true });
@@ -218,7 +220,7 @@ export default function ChatScreen() {
         showsVerticalScrollIndicator={false}
       >
         {messages.map((msg) => {
-          const isMe = msg.sender_id === DEMO_USER_ID;
+          const isMe = msg.sender_id === user?.id;
           return (
             <View
               key={msg.id}

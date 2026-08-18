@@ -24,6 +24,12 @@ export default function TabLayout() {
       icon: 'message' as const,
       label: 'Inbox',
     },
+    {
+      name: '(profile)',
+      route: '/(tabs)/(profile)' as const,
+      icon: 'person' as const,
+      label: 'Profile',
+    },
   ];
 
   return (
@@ -37,8 +43,9 @@ export default function TabLayout() {
         <Stack.Screen name="(explore)" />
         <Stack.Screen name="(sell)" />
         <Stack.Screen name="(inbox)" />
+        <Stack.Screen name="(profile)" />
       </Stack>
-      <FloatingTabBar tabs={tabs} containerWidth={280} />
+      <FloatingTabBar tabs={tabs} containerWidth={340} />
     </View>
   );
 }

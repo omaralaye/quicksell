@@ -1,7 +1,5 @@
 import { supabase } from '@/app/integrations/supabase/client';
 
-// The "current user" for demo purposes (no auth yet) — Maria K.
-export const DEMO_USER_ID = 'a0000000-0000-0000-0000-000000000001';
 
 export type ListingWithSeller = {
   id: string;

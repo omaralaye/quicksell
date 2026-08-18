@@ -5,7 +5,8 @@ import { useRouter } from 'expo-router';
 import { MessageCircle, ChevronRight } from 'lucide-react-native';
 import { COLORS } from '@/constants/Colors';
 import { getRelativeTime } from '@/utils/mockData';
-import { fetchConversations, DEMO_USER_ID } from '@/utils/supabase';
+import { fetchConversations } from '@/utils/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 
 function resolveImageSource(source: string | undefined): ImageSourcePropType {
@@ -172,12 +173,14 @@ function ConversationRow({
 
 export default function InboxScreen() {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    console.log('[Inbox] Fetching conversations for:', DEMO_USER_ID);
-    fetchConversations(DEMO_USER_ID)
+    if (!user) return;
+    console.log('[Inbox] Fetching conversations for:', user.id);
+    fetchConversations(user.id)
       .then((data) => {
         setConversations(data as ConversationItem[]);
       })
@@ -185,7 +188,7 @@ export default function InboxScreen() {
         console.error('[Inbox] fetchConversations error:', err);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [user]);
 
   const unreadCount = conversations.filter((c) => c.unread).length;
   const unreadText = unreadCount > 0 ? `${unreadCount} unread` : '';

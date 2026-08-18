@@ -1,11 +1,11 @@
 import "react-native-reanimated";
 import React, { useEffect } from "react";
-import { Stack } from "expo-router";
+import { Stack, Redirect } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { SystemBars } from "react-native-edge-to-edge";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { useColorScheme, Alert } from "react-native";
+import { useColorScheme, Alert, View, ActivityIndicator } from "react-native";
 import { useNetworkState } from "expo-network";
 import {
   DarkTheme,
@@ -16,6 +16,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { WidgetProvider } from "@/contexts/WidgetContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import {
   useFonts,
   Nunito_400Regular,
@@ -37,6 +38,30 @@ SplashScreen.preventAutoHideAsync();
 export const unstable_settings = {
   initialRouteName: "(tabs)", // Ensure any route can link back to `/`
 };
+
+function RootLayoutNav() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0F0F0F', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color="#FF6B35" size="large" />
+      </View>
+    );
+  }
+
+  return (
+    <Stack>
+      <Stack.Screen name="auth" options={{ headerShown: false }} />
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="listing/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="seller/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="my-listings" options={{ headerShown: false }} />
+      {!user && <Redirect href="/auth" />}
+    </Stack>
+  );
+}
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -102,20 +127,14 @@ export default function RootLayout() {
         value={colorScheme === "dark" ? CustomDarkTheme : CustomDefaultTheme}
       >
         <SafeAreaProvider>
-          <WidgetProvider>
-            <GestureHandlerRootView>
-              <Stack>
-                {/* Main app with tabs */}
-                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                {/* Stack screens */}
-                <Stack.Screen name="listing/[id]" options={{ headerShown: false }} />
-                <Stack.Screen name="seller/[id]" options={{ headerShown: false }} />
-                <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
-                <Stack.Screen name="my-listings" options={{ headerShown: false }} />
-              </Stack>
-              <SystemBars style={"auto"} />
-            </GestureHandlerRootView>
-          </WidgetProvider>
+          <AuthProvider>
+            <WidgetProvider>
+              <GestureHandlerRootView>
+                <RootLayoutNav />
+                <SystemBars style={"auto"} />
+              </GestureHandlerRootView>
+            </WidgetProvider>
+          </AuthProvider>
         </SafeAreaProvider>
       </ThemeProvider>
     </DevErrorBoundary>
