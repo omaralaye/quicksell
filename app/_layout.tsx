@@ -39,6 +39,32 @@ export const unstable_settings = {
   initialRouteName: "auth",
 };
 
+// Module-level constants — never recreated on render, preventing ThemeProvider subtree re-renders
+const CustomDefaultTheme: Theme = {
+  ...DefaultTheme,
+  dark: false,
+  colors: {
+    primary: "#E85D26",
+    background: "#F7F5F2",
+    card: "#FFFFFF",
+    text: "#1A1714",
+    border: "rgba(26, 23, 20, 0.08)",
+    notification: "#DC2626",
+  },
+};
+
+const CustomDarkTheme: Theme = {
+  ...DarkTheme,
+  colors: {
+    primary: "#E85D26",
+    background: "#1A1714",
+    card: "#242220",
+    text: "#F7F5F2",
+    border: "rgba(247, 245, 242, 0.08)",
+    notification: "#DC2626",
+  },
+};
+
 function RootLayoutNav() {
   const { user, loading } = useAuth();
 
@@ -94,35 +120,7 @@ export default function RootLayout() {
     }
   }, [networkState.isConnected, networkState.isInternetReachable]);
 
-  const CustomDefaultTheme: Theme = {
-    ...DefaultTheme,
-    dark: false,
-    colors: {
-      primary: "#E85D26",
-      background: "#F7F5F2",
-      card: "#FFFFFF",
-      text: "#1A1714",
-      border: "rgba(26, 23, 20, 0.08)",
-      notification: "#DC2626",
-    },
-  };
-
-  const CustomDarkTheme: Theme = {
-    ...DarkTheme,
-    colors: {
-      primary: "#E85D26",
-      background: "#1A1714",
-      card: "#242220",
-      text: "#F7F5F2",
-      border: "rgba(247, 245, 242, 0.08)",
-      notification: "#DC2626",
-    },
-  };
-
-  if (!loaded) {
-    return null;
-  }
-
+  // Providers are ALWAYS mounted — never torn down during font loading
   return (
     <DevErrorBoundary>
       <StatusBar style="auto" animated />
@@ -133,8 +131,14 @@ export default function RootLayout() {
           <AuthProvider>
             <WidgetProvider>
               <GestureHandlerRootView>
-                <RootLayoutNav />
-                <SystemBars style={"auto"} />
+                {loaded ? (
+                  <>
+                    <RootLayoutNav />
+                    <SystemBars style="auto" />
+                  </>
+                ) : (
+                  <View style={{ flex: 1, backgroundColor: "#F7F5F2" }} />
+                )}
               </GestureHandlerRootView>
             </WidgetProvider>
           </AuthProvider>
