@@ -119,7 +119,7 @@ export default function ProfileScreen() {
     setSaving(true);
     const { error } = await supabase
       .from('profiles')
-      .upsert({ id: user.id, display_name: editName, region: editRegion })
+      .update({ display_name: editName, region: editRegion })
       .eq('id', user.id);
 
     if (error) {

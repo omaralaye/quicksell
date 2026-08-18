@@ -36,7 +36,7 @@ const DevErrorBoundary = __DEV__
 SplashScreen.preventAutoHideAsync();
 
 export const unstable_settings = {
-  initialRouteName: "(tabs)", // Ensure any route can link back to `/`
+  initialRouteName: "auth",
 };
 
 function RootLayoutNav() {
@@ -50,6 +50,10 @@ function RootLayoutNav() {
     );
   }
 
+  if (!user) {
+    return <Redirect href="/auth" />;
+  }
+
   return (
     <Stack>
       <Stack.Screen name="auth" options={{ headerShown: false }} />
@@ -58,7 +62,6 @@ function RootLayoutNav() {
       <Stack.Screen name="seller/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="my-listings" options={{ headerShown: false }} />
-      {!user && <Redirect href="/auth" />}
     </Stack>
   );
 }

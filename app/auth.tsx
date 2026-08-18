@@ -8,8 +8,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Alert,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, Redirect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -18,7 +19,7 @@ type Mode = 'signin' | 'signup';
 export default function AuthScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { signInWithEmail, signUpWithEmail } = useAuth();
+  const { signInWithEmail, signUpWithEmail, user } = useAuth();
 
   const [mode, setMode] = useState<Mode>('signin');
   const [name, setName] = useState('');
@@ -30,6 +31,10 @@ export default function AuthScreen() {
   const [nameFocused, setNameFocused] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
+
+  if (user) {
+    return <Redirect href="/(tabs)" />;
+  }
 
   const handleModeSwitch = (newMode: Mode) => {
     console.log('[Auth] Mode switched to:', newMode);
@@ -52,21 +57,33 @@ export default function AuthScreen() {
 
     setLoading(true);
     try {
-      let result: { error: string | null };
       if (mode === 'signin') {
         console.log('[Auth] Signing in with email:', email);
-        result = await signInWithEmail(email.trim(), password);
+        const result = await signInWithEmail(email.trim(), password);
+        if (result.error) {
+          console.error('[Auth] Sign in error:', result.error);
+          setError(result.error);
+        } else {
+          console.log('[Auth] Sign in success, navigating to tabs');
+          router.replace('/(tabs)' as never);
+        }
       } else {
         console.log('[Auth] Signing up with email:', email, 'name:', name);
-        result = await signUpWithEmail(email.trim(), password, name.trim());
-      }
-
-      if (result.error) {
-        console.error('[Auth] Auth error:', result.error);
-        setError(result.error);
-      } else {
-        console.log('[Auth] Auth success, navigating to tabs');
-        router.replace('/(tabs)' as never);
+        const result = await signUpWithEmail(email.trim(), password, name.trim());
+        if (result.error) {
+          console.error('[Auth] Sign up error:', result.error);
+          setError(result.error);
+        } else {
+          console.log('[Auth] Sign up success');
+          setError(null);
+          setMode('signin');
+          setPassword('');
+          Alert.alert(
+            'Account Created!',
+            'You can now sign in with your email and password.',
+            [{ text: 'OK' }]
+          );
+        }
       }
     } finally {
       setLoading(false);
