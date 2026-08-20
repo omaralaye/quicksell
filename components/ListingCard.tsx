@@ -101,14 +101,14 @@ export function ListingCard({ listing, index }: ListingCardProps) {
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  backgroundColor: 'rgba(0,0,0,0.4)',
+                  backgroundColor: 'rgba(0,0,0,0.45)',
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
               >
                 <View
                   style={{
-                    backgroundColor: COLORS.textSecondary,
+                    backgroundColor: '#DC2626',
                     borderRadius: 8,
                     paddingHorizontal: 12,
                     paddingVertical: 4,
@@ -124,6 +124,41 @@ export function ListingCard({ listing, index }: ListingCardProps) {
                     }}
                   >
                     SOLD
+                  </Text>
+                </View>
+              </View>
+            )}
+            {listing.status === 'out_of_stock' && (
+              <View
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  backgroundColor: 'rgba(0,0,0,0.45)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <View
+                  style={{
+                    backgroundColor: '#D97706',
+                    borderRadius: 8,
+                    paddingHorizontal: 12,
+                    paddingVertical: 4,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      fontWeight: '700',
+                      fontFamily: 'Nunito_700Bold',
+                      color: '#FFFFFF',
+                      letterSpacing: 0.5,
+                    }}
+                  >
+                    OUT OF STOCK
                   </Text>
                 </View>
               </View>

@@ -8,10 +8,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   ImageSourcePropType,
+  TouchableOpacity,
+  Modal,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, Send } from 'lucide-react-native';
+import { ArrowLeft, Send, MoreVertical, Trash2, Ban, Flag, X } from 'lucide-react-native';
 import { COLORS } from '@/constants/Colors';
 import { fetchMessages, fetchConversations, sendMessage, MessageRow } from '@/utils/supabase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -35,9 +38,13 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const scrollRef = useRef<ScrollView>(null);
+
   const [inputText, setInputText] = useState('');
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [conversation, setConversation] = useState<ConversationDetail | null>(null);
+
+  // Action Menu Sheet state
+  const [menuVisible, setMenuVisible] = useState(false);
 
   useEffect(() => {
     if (!id || !user) return;
@@ -86,6 +93,66 @@ export default function ChatScreen() {
     } catch (err) {
       console.error('[Chat] sendMessage error:', err);
     }
+  };
+
+  const handleDeleteConversation = () => {
+    setMenuVisible(false);
+    const otherName = conversation?.other_user?.display_name ?? 'User';
+    Alert.alert(
+      'Delete Conversation?',
+      `Are you sure you want to delete your conversation with ${otherName}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            console.log('[Chat] Deleted conversation:', id);
+            router.back();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleBlockUser = () => {
+    setMenuVisible(false);
+    const otherName = conversation?.other_user?.display_name ?? 'User';
+    Alert.alert(
+      `Block ${otherName}?`,
+      `They will no longer be able to message you or view your listings.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block User',
+          style: 'destructive',
+          onPress: () => {
+            console.log('[Chat] Blocked user in chat:', conversation?.other_user?.id);
+            Alert.alert('User Blocked', `${otherName} has been blocked.`);
+            router.back();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleReportUser = () => {
+    setMenuVisible(false);
+    const otherName = conversation?.other_user?.display_name ?? 'User';
+    Alert.alert(
+      'Report User',
+      `Report ${otherName} for inappropriate behavior?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Report',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert('Report Submitted', 'Thank you for keeping QuickSell safe.');
+          },
+        },
+      ]
+    );
   };
 
   const otherUserName = conversation?.other_user?.display_name ?? 'Seller';
@@ -159,6 +226,21 @@ export default function ChatScreen() {
             {listingTitle}
           </Text>
         </View>
+
+        {/* Options Button */}
+        <TouchableOpacity
+          onPress={() => setMenuVisible(true)}
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: COLORS.surfaceSecondary,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <MoreVertical size={20} color={COLORS.text} />
+        </TouchableOpacity>
       </View>
 
       {/* Listing preview card */}
@@ -213,7 +295,7 @@ export default function ChatScreen() {
         </AnimatedPressable>
       )}
 
-      {/* Messages */}
+      {/* Messages List */}
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 20 }}
@@ -308,6 +390,132 @@ export default function ChatScreen() {
           <Send size={18} color={inputText.trim() ? '#FFFFFF' : COLORS.textTertiary} />
         </AnimatedPressable>
       </View>
+
+      {/* Options Menu Modal */}
+      <Modal
+        visible={menuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuVisible(false)}
+      >
+        <TouchableOpacity
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.45)',
+            justifyContent: 'flex-end',
+          }}
+          activeOpacity={1}
+          onPress={() => setMenuVisible(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={{
+              backgroundColor: COLORS.surface,
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              paddingTop: 20,
+              paddingHorizontal: 20,
+              paddingBottom: insets.bottom + 20,
+            }}
+          >
+            <View
+              style={{
+                width: 40,
+                height: 4,
+                borderRadius: 2,
+                backgroundColor: COLORS.border,
+                alignSelf: 'center',
+                marginBottom: 16,
+              }}
+            />
+
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 16,
+              }}
+            >
+              <Text style={{ fontSize: 18, fontFamily: 'Nunito_800ExtraBold', color: COLORS.text }}>
+                Chat Options
+              </Text>
+              <TouchableOpacity
+                onPress={() => setMenuVisible(false)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: COLORS.surfaceSecondary,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <X size={18} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ gap: 10 }}>
+              {/* Delete Conversation */}
+              <TouchableOpacity
+                onPress={handleDeleteConversation}
+                activeOpacity={0.8}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: 16,
+                  borderRadius: 14,
+                  backgroundColor: COLORS.surfaceSecondary,
+                }}
+              >
+                <Trash2 size={20} color={COLORS.danger} />
+                <Text style={{ fontSize: 15, fontFamily: 'Nunito_700Bold', color: COLORS.danger }}>
+                  Delete Conversation
+                </Text>
+              </TouchableOpacity>
+
+              {/* Block User */}
+              <TouchableOpacity
+                onPress={handleBlockUser}
+                activeOpacity={0.8}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: 16,
+                  borderRadius: 14,
+                  backgroundColor: COLORS.surfaceSecondary,
+                }}
+              >
+                <Ban size={20} color={COLORS.danger} />
+                <Text style={{ fontSize: 15, fontFamily: 'Nunito_700Bold', color: COLORS.danger }}>
+                  Block {otherUserName}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Report User */}
+              <TouchableOpacity
+                onPress={handleReportUser}
+                activeOpacity={0.8}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: 16,
+                  borderRadius: 14,
+                  backgroundColor: COLORS.surfaceSecondary,
+                }}
+              >
+                <Flag size={20} color={COLORS.textSecondary} />
+                <Text style={{ fontSize: 15, fontFamily: 'Nunito_700Bold', color: COLORS.text }}>
+                  Report User
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }

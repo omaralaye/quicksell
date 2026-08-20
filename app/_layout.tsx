@@ -76,10 +76,6 @@ function RootLayoutNav() {
     );
   }
 
-  if (!user) {
-    return <Redirect href="/auth" />;
-  }
-
   return (
     <Stack>
       <Stack.Screen name="auth" options={{ headerShown: false }} />
@@ -88,6 +84,8 @@ function RootLayoutNav() {
       <Stack.Screen name="seller/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="my-listings" options={{ headerShown: false }} />
+      <Stack.Screen name="notifications" options={{ headerShown: false }} />
+      {!user && <Redirect href="/auth" />}
     </Stack>
   );
 }
