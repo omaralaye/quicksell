@@ -96,7 +96,7 @@ export default function MyListingsScreen() {
         {/* Listings */}
         <View style={{ paddingHorizontal: 16, gap: 12 }}>
           {listings.map((listing, index) => {
-            const isActive = listing.status === 'active';
+            const isActive = listing.status === 'ACTIVE';
             const priceDisplay = `$${Number(listing.price).toLocaleString()}`;
 
             return (

@@ -1,33 +1,34 @@
-import React, { useEffect, useRef, useState } from 'react';
+/**
+ * Inbox Screen
+ * WhatsApp/iMessage-style conversation list:
+ *  - No card borders. Full-width rows with bottom dividers.
+ *  - Unread: left 3px accent bar + bold name + bold preview.
+ *  - Skeleton loading rows instead of empty screen.
+ *  - Buying / Selling / All filter tabs.
+ */
+
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
   Image,
-  Animated,
-  ImageSourcePropType,
   TouchableOpacity,
   Modal,
   Alert,
+  StyleSheet,
+  ImageSourcePropType,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import {
-  MessageCircle,
-  ChevronRight,
-  MoreVertical,
-  Trash2,
-  Ban,
-  Tag,
-  ShoppingBag,
-  X,
-  ShieldAlert,
-} from 'lucide-react-native';
+import { MessageCircle, MoreVertical, Trash2, Ban, Tag, ShoppingBag, X } from 'lucide-react-native';
 import { COLORS } from '@/constants/Colors';
 import { getRelativeTime } from '@/utils/mockData';
-import { fetchConversations } from '@/utils/supabase';
+import { fetchConversations } from '@/services/chat';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { AnimatedPressable } from '@/components/AnimatedPressable';
+import { SkeletonConversationRow } from '@/components/SkeletonCard';
+import { EmptyState } from '@/components/EmptyState';
 
 function resolveImageSource(source: string | undefined): ImageSourcePropType {
   if (!source) return { uri: '' };
@@ -46,6 +47,122 @@ export type ConversationItem = {
 
 type FilterTab = 'all' | 'buying' | 'selling';
 
+// ─── Filter tab pill ──────────────────────────────────────────────────────────
+
+function FilterPill({
+  label,
+  active,
+  onPress,
+  icon,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.8}
+      style={[styles.pill, active && styles.pillActive]}
+    >
+      {icon}
+      <Text style={[styles.pillText, active && styles.pillTextActive]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+// ─── Single conversation row ──────────────────────────────────────────────────
+
+function ConversationRow({
+  conv,
+  onPress,
+  onOptions,
+}: {
+  conv: ConversationItem;
+  onPress: () => void;
+  onOptions: (e: any) => void;
+}) {
+  const isUnread = !!conv.unread;
+  const isBuying = conv.role === 'buying';
+  const timeDisplay = getRelativeTime(conv.last_message_at ?? '');
+  const initials = conv.other_user?.display_name?.[0]?.toUpperCase() ?? '?';
+
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.88} style={styles.rowWrap}>
+      {/* Unread accent bar */}
+      {isUnread && <View style={styles.unreadBar} />}
+
+      <View style={[styles.row, isUnread && styles.rowUnread]}>
+        {/* Avatar */}
+        <View style={{ position: 'relative' }}>
+          {conv.other_user?.avatar_url ? (
+            <Image
+              source={resolveImageSource(conv.other_user.avatar_url)}
+              style={styles.avatar}
+            />
+          ) : (
+            <View style={[styles.avatar, styles.avatarFallback]}>
+              <Text style={styles.avatarInitial}>{initials}</Text>
+            </View>
+          )}
+          {isUnread && <View style={styles.unreadDot} />}
+        </View>
+
+        {/* Content */}
+        <View style={styles.rowContent}>
+          <View style={styles.rowHeader}>
+            <View style={styles.nameRow}>
+              <Text
+                style={[styles.name, isUnread && styles.nameUnread]}
+                numberOfLines={1}
+              >
+                {conv.other_user?.display_name ?? 'User'}
+              </Text>
+              {/* Role badge */}
+              <View style={[styles.roleBadge, isBuying ? styles.roleBadgeBuying : styles.roleBadgeSelling]}>
+                <Text style={[styles.roleText, isBuying ? styles.roleTextBuying : styles.roleTextSelling]}>
+                  {isBuying ? 'BUYING' : 'SELLING'}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.timestamp}>{timeDisplay}</Text>
+          </View>
+
+          {/* Listing title */}
+          {conv.listing?.title ? (
+            <Text numberOfLines={1} style={styles.listingTitle}>
+              {conv.listing.title}
+            </Text>
+          ) : null}
+
+          {/* Last message */}
+          <Text
+            numberOfLines={1}
+            style={[styles.preview, isUnread && styles.previewUnread]}
+          >
+            {conv.last_message ?? 'No messages yet'}
+          </Text>
+        </View>
+
+        {/* Options button */}
+        <TouchableOpacity
+          onPress={onOptions}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={styles.optionsBtn}
+        >
+          <MoreVertical size={16} color={COLORS.textTertiary} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Divider — inset from avatar left edge */}
+      <View style={styles.divider} />
+    </TouchableOpacity>
+  );
+}
+
+// ─── Main Screen ──────────────────────────────────────────────────────────────
+
 export default function InboxScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -55,505 +172,203 @@ export default function InboxScreen() {
   const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [loading, setLoading] = useState(true);
-
-  // Selected conversation for action sheet modal
   const [selectedConv, setSelectedConv] = useState<ConversationItem | null>(null);
   const [actionModalVisible, setActionModalVisible] = useState(false);
 
+  const loadConversations = () => {
+    if (!user) return;
+    fetchConversations(user.id)
+      .then((data) => setConversations(data as ConversationItem[]))
+      .catch((err) => console.error('[Inbox] fetchConversations error:', err))
+      .finally(() => setLoading(false));
+  };
+
   useEffect(() => {
     if (!user) return;
-    console.log('[Inbox] Fetching conversations for:', user.id);
-    fetchConversations(user.id)
-      .then((data) => {
-        setConversations(data as ConversationItem[]);
-      })
-      .catch((err) => {
-        console.error('[Inbox] fetchConversations error:', err);
-      })
-      .finally(() => setLoading(false));
+    loadConversations();
+    const channel = supabase
+      .channel(`inbox_${user.id}_${Date.now()}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, loadConversations)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [user]);
 
-  const handleOpenActionModal = (conv: ConversationItem, e: any) => {
+  const handleOpenOptions = (conv: ConversationItem, e: any) => {
     e.stopPropagation();
-    console.log('[Inbox] Action modal opened for conv:', conv.id);
     setSelectedConv(conv);
     setActionModalVisible(true);
   };
 
-  const handleDeleteConversation = () => {
+  const handleDelete = () => {
     if (!selectedConv) return;
-    const convId = selectedConv.id;
-    const otherName = selectedConv.other_user?.display_name ?? 'User';
-
+    const name = selectedConv.other_user?.display_name ?? 'User';
     Alert.alert(
       'Delete Conversation?',
-      `Are you sure you want to delete your conversation with ${otherName}? This cannot be undone.`,
+      `Delete your conversation with ${name}? This cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
-          style: 'destructive',
+          text: 'Delete', style: 'destructive',
           onPress: () => {
-            console.log('[Inbox] Deleted conversation:', convId);
-            setConversations((prev) => prev.filter((c) => c.id !== convId));
+            setConversations(prev => prev.filter(c => c.id !== selectedConv.id));
             setActionModalVisible(false);
-            setSelectedConv(null);
           },
         },
       ]
     );
   };
 
-  const handleBlockUser = () => {
-    if (!selectedConv) return;
-    const otherUser = selectedConv.other_user;
-    if (!otherUser) return;
-
+  const handleBlock = () => {
+    if (!selectedConv?.other_user) return;
+    const { id, display_name } = selectedConv.other_user;
     Alert.alert(
-      `Block ${otherUser.display_name}?`,
-      `They will no longer be able to message you or view your listings.`,
+      `Block ${display_name}?`,
+      'They will no longer be able to message you or view your listings.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Block User',
-          style: 'destructive',
+          text: 'Block User', style: 'destructive',
           onPress: () => {
-            console.log('[Inbox] Blocked user:', otherUser.id);
-            setBlockedUserIds((prev) => [...prev, otherUser.id]);
-            setConversations((prev) => prev.filter((c) => c.other_user?.id !== otherUser.id));
+            setBlockedUserIds(prev => [...prev, id]);
+            setConversations(prev => prev.filter(c => c.other_user?.id !== id));
             setActionModalVisible(false);
-            setSelectedConv(null);
-            Alert.alert('User Blocked', `${otherUser.display_name} has been blocked.`);
+            Alert.alert('User Blocked', `${display_name} has been blocked.`);
           },
         },
       ]
     );
   };
 
-  // Filter conversations
-  const filteredConversations = conversations.filter((conv) => {
-    if (conv.other_user?.id && blockedUserIds.includes(conv.other_user.id)) return false;
-    if (activeTab === 'buying') return conv.role === 'buying';
-    if (activeTab === 'selling') return conv.role === 'selling';
+  // ── Filtering ──────────────────────────────────────────────────────────────
+
+  const visibleConvs = conversations.filter(c =>
+    !blockedUserIds.includes(c.other_user?.id ?? '')
+  );
+  const filteredConvs = visibleConvs.filter(c => {
+    if (activeTab === 'buying')  return c.role === 'buying';
+    if (activeTab === 'selling') return c.role === 'selling';
     return true;
   });
 
-  const buyingCount = conversations.filter((c) => c.role === 'buying' && !blockedUserIds.includes(c.other_user?.id ?? '')).length;
-  const sellingCount = conversations.filter((c) => c.role === 'selling' && !blockedUserIds.includes(c.other_user?.id ?? '')).length;
-  const unreadCount = conversations.filter((c) => c.unread && !blockedUserIds.includes(c.other_user?.id ?? '')).length;
+  const buyingCount  = visibleConvs.filter(c => c.role === 'buying').length;
+  const sellingCount = visibleConvs.filter(c => c.role === 'selling').length;
+  const unreadCount  = visibleConvs.filter(c => c.unread).length;
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+    <View style={[styles.screen, { backgroundColor: COLORS.background }]}>
       <ScrollView
         contentContainerStyle={{ paddingBottom: 120 }}
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <View
-          style={{
-            paddingTop: insets.top + 12,
-            paddingHorizontal: 16,
-            paddingBottom: 16,
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text
-              style={{
-                fontSize: 28,
-                fontWeight: '800',
-                fontFamily: 'Nunito_800ExtraBold',
-                color: COLORS.text,
-                letterSpacing: -0.5,
-              }}
-            >
-              Inbox
-            </Text>
+        <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
+          <View style={styles.headerRow}>
+            <Text style={styles.headerTitle}>Inbox</Text>
             {unreadCount > 0 && (
-              <View
-                style={{
-                  backgroundColor: COLORS.primaryMuted,
-                  borderRadius: 12,
-                  paddingHorizontal: 10,
-                  paddingVertical: 4,
-                  borderWidth: 1,
-                  borderColor: COLORS.primary,
-                }}
-              >
-                <Text
-                  style={{
-                    fontSize: 12,
-                    fontFamily: 'Nunito_700Bold',
-                    color: COLORS.primary,
-                  }}
-                >
-                  {unreadCount} unread
-                </Text>
+              <View style={styles.unreadCountBadge}>
+                <Text style={styles.unreadCountText}>{unreadCount} unread</Text>
               </View>
             )}
           </View>
         </View>
 
-        {/* Buying vs Selling Tabs */}
-        <View
-          style={{
-            flexDirection: 'row',
-            paddingHorizontal: 16,
-            marginBottom: 16,
-            gap: 8,
-          }}
-        >
-          <TouchableOpacity
+        {/* Filter tabs */}
+        <View style={styles.tabsRow}>
+          <FilterPill
+            label={`All (${visibleConvs.length})`}
+            active={activeTab === 'all'}
             onPress={() => setActiveTab('all')}
-            style={{
-              paddingHorizontal: 14,
-              paddingVertical: 8,
-              borderRadius: 20,
-              backgroundColor: activeTab === 'all' ? COLORS.primary : COLORS.surface,
-              borderWidth: 1,
-              borderColor: activeTab === 'all' ? COLORS.primary : COLORS.border,
-            }}
-          >
-            <Text
-              style={{
-                fontSize: 13,
-                fontFamily: 'Nunito_700Bold',
-                color: activeTab === 'all' ? '#FFFFFF' : COLORS.textSecondary,
-              }}
-            >
-              All Messages ({conversations.length})
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
+          />
+          <FilterPill
+            label={`Buying (${buyingCount})`}
+            active={activeTab === 'buying'}
             onPress={() => setActiveTab('buying')}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 5,
-              paddingHorizontal: 14,
-              paddingVertical: 8,
-              borderRadius: 20,
-              backgroundColor: activeTab === 'buying' ? COLORS.primary : COLORS.surface,
-              borderWidth: 1,
-              borderColor: activeTab === 'buying' ? COLORS.primary : COLORS.border,
-            }}
-          >
-            <ShoppingBag size={14} color={activeTab === 'buying' ? '#FFFFFF' : COLORS.primary} />
-            <Text
-              style={{
-                fontSize: 13,
-                fontFamily: 'Nunito_700Bold',
-                color: activeTab === 'buying' ? '#FFFFFF' : COLORS.text,
-              }}
-            >
-              Buying ({buyingCount})
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
+            icon={<ShoppingBag size={13} color={activeTab === 'buying' ? '#FFFFFF' : COLORS.primary} />}
+          />
+          <FilterPill
+            label={`Selling (${sellingCount})`}
+            active={activeTab === 'selling'}
             onPress={() => setActiveTab('selling')}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 5,
-              paddingHorizontal: 14,
-              paddingVertical: 8,
-              borderRadius: 20,
-              backgroundColor: activeTab === 'selling' ? COLORS.primary : COLORS.surface,
-              borderWidth: 1,
-              borderColor: activeTab === 'selling' ? COLORS.primary : COLORS.border,
-            }}
-          >
-            <Tag size={14} color={activeTab === 'selling' ? '#FFFFFF' : '#D97706'} />
-            <Text
-              style={{
-                fontSize: 13,
-                fontFamily: 'Nunito_700Bold',
-                color: activeTab === 'selling' ? '#FFFFFF' : COLORS.text,
-              }}
-            >
-              Selling ({sellingCount})
-            </Text>
-          </TouchableOpacity>
+            icon={<Tag size={13} color={activeTab === 'selling' ? '#FFFFFF' : COLORS.warning} />}
+          />
         </View>
 
-        {/* Conversations List */}
-        {!loading && filteredConversations.length === 0 ? (
-          <View
-            style={{
-              alignItems: 'center',
-              paddingTop: 70,
-              paddingHorizontal: 32,
-              gap: 12,
-            }}
-          >
-            <View
-              style={{
-                width: 72,
-                height: 72,
-                borderRadius: 20,
-                backgroundColor: COLORS.primaryMuted,
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: 4,
-              }}
-            >
-              <MessageCircle size={32} color={COLORS.primary} />
-            </View>
-            <Text
-              style={{
-                fontSize: 17,
-                fontWeight: '700',
-                fontFamily: 'Nunito_700Bold',
-                color: COLORS.text,
-              }}
-            >
-              No {activeTab !== 'all' ? activeTab : ''} messages
-            </Text>
-            <Text
-              style={{
-                fontSize: 14,
-                fontFamily: 'Nunito_400Regular',
-                color: COLORS.textSecondary,
-                textAlign: 'center',
-                maxWidth: 260,
-              }}
-            >
-              {activeTab === 'selling'
-                ? 'When buyers message you about your items, they will show up here.'
-                : 'Start by messaging sellers about items you want to buy.'}
-            </Text>
-          </View>
-        ) : (
-          <View style={{ paddingHorizontal: 16, gap: 10 }}>
-            {filteredConversations.map((conv) => {
-              const timeDisplay = getRelativeTime(conv.last_message_at ?? '');
-              const otherUserName = conv.other_user?.display_name ?? 'User';
-              const otherUserAvatar = conv.other_user?.avatar_url ?? undefined;
-              const listingTitle = conv.listing?.title ?? '';
-              const listingImage = conv.listing?.image_url ?? undefined;
-              const isUnread = conv.unread ?? false;
-              const isBuying = conv.role === 'buying';
-
-              return (
-                <AnimatedPressable
-                  key={conv.id}
-                  onPress={() => router.push(`/chat/${conv.id}`)}
-                >
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      backgroundColor: COLORS.surface,
-                      borderRadius: 14,
-                      padding: 12,
-                      gap: 12,
-                      borderWidth: 1,
-                      borderColor: COLORS.border,
-                    }}
-                  >
-                    {/* User Avatar */}
-                    <View style={{ position: 'relative' }}>
-                      <Image
-                        source={resolveImageSource(otherUserAvatar)}
-                        style={{
-                          width: 50,
-                          height: 50,
-                          borderRadius: 25,
-                          backgroundColor: COLORS.surfaceSecondary,
-                        }}
-                      />
-                      {isUnread && (
-                        <View
-                          style={{
-                            position: 'absolute',
-                            top: 0,
-                            right: 0,
-                            width: 12,
-                            height: 12,
-                            borderRadius: 6,
-                            backgroundColor: COLORS.primary,
-                            borderWidth: 2,
-                            borderColor: COLORS.surface,
-                          }}
-                        />
-                      )}
-                    </View>
-
-                    {/* Listing Thumbnail */}
-                    <Image
-                      source={resolveImageSource(listingImage)}
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 8,
-                        backgroundColor: COLORS.surfaceSecondary,
-                      }}
-                    />
-
-                    {/* Conversation Info */}
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text
-                            style={{
-                              fontSize: 15,
-                              fontWeight: '700',
-                              fontFamily: 'Nunito_700Bold',
-                              color: COLORS.text,
-                            }}
-                          >
-                            {otherUserName}
-                          </Text>
-                          {/* Role Tag Badge */}
-                          <View
-                            style={{
-                              backgroundColor: isBuying ? '#DEF7EC' : '#FEF3C7',
-                              borderRadius: 6,
-                              paddingHorizontal: 6,
-                              paddingVertical: 2,
-                            }}
-                          >
-                            <Text
-                              style={{
-                                fontSize: 10,
-                                fontFamily: 'Nunito_700Bold',
-                                color: isBuying ? '#03543F' : '#92400E',
-                              }}
-                            >
-                              {isBuying ? 'BUYING' : 'SELLING'}
-                            </Text>
-                          </View>
-                        </View>
-                        <Text
-                          style={{
-                            fontSize: 11,
-                            fontFamily: 'Nunito_400Regular',
-                            color: COLORS.textTertiary,
-                          }}
-                        >
-                          {timeDisplay}
-                        </Text>
-                      </View>
-
-                      <Text
-                        numberOfLines={1}
-                        style={{
-                          fontSize: 13,
-                          fontFamily: 'Nunito_600SemiBold',
-                          color: COLORS.textSecondary,
-                        }}
-                      >
-                        {listingTitle}
-                      </Text>
-
-                      <Text
-                        numberOfLines={1}
-                        style={{
-                          fontSize: 13,
-                          fontFamily: 'Nunito_400Regular',
-                          color: isUnread ? COLORS.text : COLORS.textSecondary,
-                          fontWeight: isUnread ? '700' : '400',
-                        }}
-                      >
-                        {conv.last_message}
-                      </Text>
-                    </View>
-
-                    {/* Options Menu Button */}
-                    <TouchableOpacity
-                      onPress={(e) => handleOpenActionModal(conv, e)}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      style={{
-                        padding: 6,
-                        borderRadius: 16,
-                        backgroundColor: COLORS.surfaceSecondary,
-                      }}
-                    >
-                      <MoreVertical size={16} color={COLORS.textSecondary} />
-                    </TouchableOpacity>
-                  </View>
-                </AnimatedPressable>
-              );
-            })}
-          </View>
-        )}
+        {/* List */}
+        <View style={styles.list}>
+          {loading ? (
+            // Skeleton rows
+            <>
+              {[0, 1, 2, 3, 4].map(i => <SkeletonConversationRow key={i} />)}
+            </>
+          ) : filteredConvs.length === 0 ? (
+            <EmptyState
+              icon={<MessageCircle size={36} color={COLORS.primary} />}
+              title={
+                activeTab === 'selling'
+                  ? 'No selling conversations'
+                  : activeTab === 'buying'
+                  ? 'No buying conversations'
+                  : 'No messages yet'
+              }
+              subtitle={
+                activeTab === 'selling'
+                  ? "When buyers message you about your items, they'll appear here."
+                  : 'Start by messaging sellers about items you want to buy.'
+              }
+            />
+          ) : (
+            filteredConvs.map(conv => (
+              <ConversationRow
+                key={conv.id}
+                conv={conv}
+                onPress={() => router.push(`/chat/${conv.id}`)}
+                onOptions={(e) => handleOpenOptions(conv, e)}
+              />
+            ))
+          )}
+        </View>
       </ScrollView>
 
-      {/* Conversation Action Sheet Modal */}
+      {/* Action sheet modal */}
       <Modal
         visible={actionModalVisible}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setActionModalVisible(false)}
       >
         <TouchableOpacity
-          style={{
-            flex: 1,
-            backgroundColor: 'rgba(0,0,0,0.45)',
-            justifyContent: 'flex-end',
-          }}
+          style={styles.modalBackdrop}
           activeOpacity={1}
           onPress={() => setActionModalVisible(false)}
         >
           <TouchableOpacity
             activeOpacity={1}
-            style={{
-              backgroundColor: COLORS.surface,
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
-              paddingTop: 20,
-              paddingHorizontal: 20,
-              paddingBottom: insets.bottom + 20,
-            }}
+            style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}
           >
-            {/* Sheet Handle */}
-            <View
-              style={{
-                width: 40,
-                height: 4,
-                borderRadius: 2,
-                backgroundColor: COLORS.border,
-                alignSelf: 'center',
-                marginBottom: 16,
-              }}
-            />
+            <View style={styles.sheetHandle} />
 
-            {/* Selected User Header */}
+            {/* User header */}
             {selectedConv && (
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 12,
-                  marginBottom: 20,
-                  paddingBottom: 16,
-                  borderBottomWidth: 1,
-                  borderBottomColor: COLORS.border,
-                }}
-              >
+              <View style={styles.sheetHeader}>
                 <Image
                   source={resolveImageSource(selectedConv.other_user?.avatar_url ?? undefined)}
-                  style={{ width: 44, height: 44, borderRadius: 22 }}
+                  style={styles.sheetAvatar}
                 />
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 16, fontFamily: 'Nunito_800ExtraBold', color: COLORS.text }}>
+                  <Text style={styles.sheetName}>
                     {selectedConv.other_user?.display_name ?? 'User'}
                   </Text>
-                  <Text style={{ fontSize: 13, fontFamily: 'Nunito_400Regular', color: COLORS.textSecondary }}>
-                    {selectedConv.listing?.title}
-                  </Text>
+                  {selectedConv.listing?.title ? (
+                    <Text style={styles.sheetSub} numberOfLines={1}>
+                      {selectedConv.listing.title}
+                    </Text>
+                  ) : null}
                 </View>
                 <TouchableOpacity
                   onPress={() => setActionModalVisible(false)}
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    backgroundColor: COLORS.surfaceSecondary,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
+                  style={styles.sheetClose}
                 >
                   <X size={18} color={COLORS.textSecondary} />
                 </TouchableOpacity>
@@ -561,52 +376,21 @@ export default function InboxScreen() {
             )}
 
             {/* Actions */}
-            <View style={{ gap: 10 }}>
-              {/* Delete Conversation Button */}
-              <TouchableOpacity
-                onPress={handleDeleteConversation}
-                activeOpacity={0.8}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: 16,
-                  borderRadius: 14,
-                  backgroundColor: COLORS.surfaceSecondary,
-                }}
-              >
+            <View style={styles.sheetActions}>
+              <TouchableOpacity onPress={handleDelete} activeOpacity={0.8} style={styles.sheetAction}>
                 <Trash2 size={20} color={COLORS.danger} />
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 15, fontFamily: 'Nunito_700Bold', color: COLORS.danger }}>
-                    Delete Conversation
-                  </Text>
-                  <Text style={{ fontSize: 12, fontFamily: 'Nunito_400Regular', color: COLORS.textSecondary }}>
-                    Remove this message thread from your inbox
-                  </Text>
+                  <Text style={styles.sheetActionTitle}>Delete Conversation</Text>
+                  <Text style={styles.sheetActionSub}>Remove this thread from your inbox</Text>
                 </View>
               </TouchableOpacity>
-
-              {/* Block User Button */}
-              <TouchableOpacity
-                onPress={handleBlockUser}
-                activeOpacity={0.8}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: 16,
-                  borderRadius: 14,
-                  backgroundColor: COLORS.surfaceSecondary,
-                }}
-              >
+              <TouchableOpacity onPress={handleBlock} activeOpacity={0.8} style={styles.sheetAction}>
                 <Ban size={20} color={COLORS.danger} />
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 15, fontFamily: 'Nunito_700Bold', color: COLORS.danger }}>
+                  <Text style={styles.sheetActionTitle}>
                     Block {selectedConv?.other_user?.display_name ?? 'User'}
                   </Text>
-                  <Text style={{ fontSize: 12, fontFamily: 'Nunito_400Regular', color: COLORS.textSecondary }}>
-                    Stop receiving messages and block access
-                  </Text>
+                  <Text style={styles.sheetActionSub}>Stop messages and block access to your listings</Text>
                 </View>
               </TouchableOpacity>
             </View>
@@ -616,3 +400,269 @@ export default function InboxScreen() {
     </View>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  screen: { flex: 1 },
+  header: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    backgroundColor: COLORS.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontFamily: 'Nunito_800ExtraBold',
+    color: COLORS.text,
+    letterSpacing: -0.5,
+  },
+  unreadCountBadge: {
+    backgroundColor: COLORS.primaryMuted,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: COLORS.primary + '30',
+  },
+  unreadCountText: {
+    fontSize: 12,
+    fontFamily: 'Nunito_700Bold',
+    color: COLORS.primary,
+  },
+  tabsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: COLORS.surface,
+  },
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: COLORS.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  pillActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  pillText: {
+    fontSize: 13,
+    fontFamily: 'Nunito_700Bold',
+    color: COLORS.textSecondary,
+  },
+  pillTextActive: {
+    color: '#FFFFFF',
+  },
+  list: {
+    backgroundColor: COLORS.surface,
+    marginTop: 8,
+  },
+  // ── Conversation row ──────────────────────────────────────────────────────
+  rowWrap: {
+    position: 'relative',
+    backgroundColor: COLORS.surface,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    gap: 12,
+  },
+  rowUnread: {
+    backgroundColor: 'rgba(232,93,38,0.025)',
+  },
+  unreadBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+    backgroundColor: COLORS.primary,
+    borderRadius: 2,
+  },
+  avatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: COLORS.surfaceSecondary,
+  },
+  avatarFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primaryMuted,
+  },
+  avatarInitial: {
+    fontSize: 18,
+    fontFamily: 'Nunito_800ExtraBold',
+    color: COLORS.primary,
+  },
+  unreadDot: {
+    position: 'absolute',
+    top: 1,
+    right: 1,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    backgroundColor: COLORS.primary,
+    borderWidth: 2,
+    borderColor: COLORS.surface,
+  },
+  rowContent: {
+    flex: 1,
+    gap: 3,
+  },
+  rowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+    marginRight: 8,
+  },
+  name: {
+    fontSize: 15,
+    fontFamily: 'Nunito_600SemiBold',
+    color: COLORS.text,
+    flexShrink: 1,
+  },
+  nameUnread: {
+    fontFamily: 'Nunito_800ExtraBold',
+  },
+  roleBadge: {
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  roleBadgeBuying: { backgroundColor: 'rgba(45,155,111,0.12)' },
+  roleBadgeSelling: { backgroundColor: 'rgba(217,119,6,0.12)' },
+  roleText: {
+    fontSize: 9,
+    fontFamily: 'Nunito_700Bold',
+    letterSpacing: 0.3,
+  },
+  roleTextBuying: { color: '#065F46' },
+  roleTextSelling: { color: '#92400E' },
+  timestamp: {
+    fontSize: 12,
+    fontFamily: 'Nunito_400Regular',
+    color: COLORS.textTertiary,
+    flexShrink: 0,
+  },
+  listingTitle: {
+    fontSize: 12,
+    fontFamily: 'Nunito_600SemiBold',
+    color: COLORS.textSecondary,
+  },
+  preview: {
+    fontSize: 13,
+    fontFamily: 'Nunito_400Regular',
+    color: COLORS.textSecondary,
+  },
+  previewUnread: {
+    fontFamily: 'Nunito_600SemiBold',
+    color: COLORS.text,
+  },
+  optionsBtn: {
+    padding: 6,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: COLORS.divider,
+    marginLeft: 78, // inset past avatar
+  },
+  // ── Action sheet ──────────────────────────────────────────────────────────
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    paddingHorizontal: 20,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.border,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  sheetAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: COLORS.surfaceSecondary,
+  },
+  sheetName: {
+    fontSize: 16,
+    fontFamily: 'Nunito_800ExtraBold',
+    color: COLORS.text,
+  },
+  sheetSub: {
+    fontSize: 13,
+    fontFamily: 'Nunito_400Regular',
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  sheetClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.surfaceSecondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetActions: {
+    gap: 8,
+  },
+  sheetAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    padding: 16,
+    borderRadius: 14,
+    backgroundColor: COLORS.surfaceSecondary,
+  },
+  sheetActionTitle: {
+    fontSize: 15,
+    fontFamily: 'Nunito_700Bold',
+    color: COLORS.danger,
+  },
+  sheetActionSub: {
+    fontSize: 12,
+    fontFamily: 'Nunito_400Regular',
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+});

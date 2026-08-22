@@ -1,11 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
-  FlatList,
-  Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,141 +18,169 @@ import {
   Trash2,
   CheckCheck,
   Sparkles,
+  ShoppingBag,
+  Truck,
+  PackageCheck,
+  XCircle,
 } from 'lucide-react-native';
 import { COLORS } from '@/constants/Colors';
+import { useAppStore } from '@/store/useAppStore';
+import { useAuth } from '@/contexts/AuthContext';
+import { 
+  fetchNotifications,
+  markNotificationAsRead, 
+  markAllNotificationsAsRead, 
+  deleteNotification, 
+  clearAllNotifications,
+  subscribeToNotifications,
+  NotificationItem
+} from '@/services/notifications';
 
-type NotificationType = 'offer' | 'message' | 'price_drop' | 'review' | 'sold' | 'system';
-
-interface NotificationItem {
-  id: string;
-  type: NotificationType;
-  title: string;
-  body: string;
-  time: string;
-  read: boolean;
-  targetId?: string;
-}
-
-const INITIAL_NOTIFICATIONS: NotificationItem[] = [
-  {
-    id: 'n1',
-    type: 'price_drop',
-    title: 'Price Drop Alert!',
-    body: 'Vintage Leather Jacket dropped in price from $60 to $45.',
-    time: '10m ago',
-    read: false,
-  },
-  {
-    id: 'n2',
-    type: 'offer',
-    title: 'New Offer Received',
-    body: 'Sarah offered $120 for your Wooden Coffee Table.',
-    time: '1h ago',
-    read: false,
-  },
-  {
-    id: 'n3',
-    type: 'message',
-    title: 'New Message',
-    body: 'Alex: "Is the Mechanical Keyboard still available for pickup?"',
-    time: '3h ago',
-    read: false,
-  },
-  {
-    id: 'n4',
-    type: 'review',
-    title: 'New 5-Star Review',
-    body: 'Marcus left a review: "Awesome seller, super fast communication!"',
-    time: '1d ago',
-    read: true,
-  },
-  {
-    id: 'n5',
-    type: 'sold',
-    title: 'Item Marked as Sold',
-    body: 'Your Sony WH-1000XM4 Headphones listing has been completed.',
-    time: '2d ago',
-    read: true,
-  },
-  {
-    id: 'n6',
-    type: 'system',
-    title: 'Welcome to NearSwap',
-    body: 'Start exploring great deals and selling items nearby in Brooklyn, NY.',
-    time: '3d ago',
-    read: true,
-  },
-];
-
-type FilterTab = 'all' | 'unread' | 'offers' | 'system';
+type FilterTab = 'all' | 'unread' | 'orders' | 'messages' | 'system';
 
 export default function NotificationsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
+  const { user } = useAuth();
+  
+  const notifications = useAppStore(state => state.notifications);
+  const setNotificationsStore = useAppStore(state => state.setNotifications);
+  const addNotificationStore = useAppStore(state => state.addNotification);
+  const markNotificationReadStore = useAppStore(state => state.markNotificationRead);
+  const markAllNotificationsReadStore = useAppStore(state => state.markAllNotificationsRead);
+  const deleteNotificationStore = useAppStore(state => state.deleteNotification);
+  const clearAllNotificationsStore = useAppStore(state => state.clearAllNotifications);
+  
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
+
+  // Initial fetch and Realtime subscription
+  useEffect(() => {
+    if (!user?.id) return;
+
+    fetchNotifications(user.id)
+      .then((data) => setNotificationsStore(data))
+      .catch((err) => console.error('Failed to fetch initial notifications:', err));
+
+    const unsubscribe = subscribeToNotifications(user.id, (newNotification) => {
+      addNotificationStore(newNotification);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [user?.id]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  const handleMarkAllRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  const handleMarkAllRead = async () => {
+    if (!user) return;
+    try {
+      await markAllNotificationsAsRead(user.id);
+      markAllNotificationsReadStore();
+    } catch (err) {
+      console.error('Failed to mark all as read:', err);
+    }
   };
 
-  const handleToggleRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: !n.read } : n))
-    );
+  const handleNotificationPress = async (item: NotificationItem) => {
+    if (!item.read) {
+      try {
+        await markNotificationAsRead(item.id);
+        markNotificationReadStore(item.id);
+      } catch (err) {
+        console.error('Failed to mark notification as read:', err);
+      }
+    }
+
+    // Execute Deep Link Routing
+    if (item.deepLink) {
+      router.push(item.deepLink as any);
+      return;
+    }
+
+    // Fallback deep links based on entity structure
+    if (item.entityType === 'ORDER' || item.type?.startsWith('ORDER_') || item.type?.startsWith('PAYMENT_')) {
+      const orderId = item.entityId || item.related_entity_id;
+      if (orderId) router.push(`/orders/${orderId}` as any);
+    } else if (item.entityType === 'CHAT' || item.type === 'NEW_MESSAGE') {
+      const convId = item.entityId || item.related_entity_id;
+      if (convId) router.push(`/chat/${convId}` as any);
+    } else if (item.entityType === 'LISTING' || item.type?.startsWith('PRODUCT_')) {
+      const listingId = item.entityId || item.related_entity_id;
+      if (listingId) router.push(`/listing/${listingId}` as any);
+    } else if (item.type === 'NEW_RATING' || item.entityType === 'PROFILE') {
+      const userId = item.entityId || item.related_entity_id;
+      if (userId) router.push(`/seller/${userId}` as any);
+    }
   };
 
-  const handleDeleteItem = (id: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  const handleDeleteItem = async (id: string) => {
+    try {
+      await deleteNotification(id);
+      deleteNotificationStore(id);
+    } catch (err) {
+      console.error('Failed to delete notification:', err);
+    }
   };
 
-  const handleClearAll = () => {
-    setNotifications([]);
+  const handleClearAll = async () => {
+    if (!user) return;
+    try {
+      await clearAllNotifications(user.id);
+      clearAllNotificationsStore();
+    } catch (err) {
+      console.error('Failed to clear all notifications:', err);
+    }
   };
 
   const filteredNotifications = notifications.filter((n) => {
+    const eventType = n.eventType || n.type || '';
     if (activeTab === 'unread') return !n.read;
-    if (activeTab === 'offers') return n.type === 'offer' || n.type === 'price_drop';
-    if (activeTab === 'system') return n.type === 'system' || n.type === 'sold' || n.type === 'review';
+    if (activeTab === 'orders') {
+      return (
+        eventType.startsWith('ORDER_') ||
+        eventType.startsWith('PAYMENT_') ||
+        n.entityType === 'ORDER' ||
+        n.type === 'offer'
+      );
+    }
+    if (activeTab === 'messages') {
+      return eventType === 'NEW_MESSAGE' || n.type === 'message' || n.entityType === 'CHAT';
+    }
+    if (activeTab === 'system') {
+      return (
+        eventType === 'NEW_RATING' ||
+        eventType.startsWith('PRODUCT_') ||
+        eventType.startsWith('BUYER_REQUEST') ||
+        n.type === 'system'
+      );
+    }
     return true;
   });
 
-  const getIcon = (type: NotificationType) => {
-    switch (type) {
-      case 'offer':
-        return <DollarSign size={20} color={COLORS.primary} />;
-      case 'price_drop':
-        return <Tag size={20} color="#D97706" />;
-      case 'message':
-        return <MessageSquare size={20} color="#2563EB" />;
-      case 'review':
-        return <Star size={20} color="#EAB308" />;
-      case 'sold':
-        return <CheckCircle2 size={20} color={COLORS.accent} />;
-      case 'system':
-      default:
-        return <Sparkles size={20} color={COLORS.primary} />;
+  const getIcon = (item: NotificationItem) => {
+    const type = item.eventType || item.type || '';
+    if (type.includes('ORDER') || type.includes('PAYMENT')) {
+      if (type.includes('CANCELLED') || type.includes('REJECTED')) return <XCircle size={20} color="#EF4444" />;
+      if (type.includes('DELIVERED') || type.includes('COMPLETED')) return <PackageCheck size={20} color={COLORS.accent} />;
+      if (type.includes('SHIPPED') || type.includes('READY')) return <Truck size={20} color="#2563EB" />;
+      return <ShoppingBag size={20} color={COLORS.primary} />;
     }
+    if (type === 'NEW_MESSAGE' || type === 'message') return <MessageSquare size={20} color="#2563EB" />;
+    if (type === 'NEW_RATING' || type === 'review') return <Star size={20} color="#EAB308" />;
+    if (type.includes('PRODUCT') || type.includes('BUYER_REQUEST') || type.includes('MATCH')) return <Tag size={20} color="#D97706" />;
+    
+    return <Sparkles size={20} color={COLORS.primary} />;
   };
 
-  const getIconBg = (type: NotificationType) => {
-    switch (type) {
-      case 'offer':
-        return COLORS.primaryMuted;
-      case 'price_drop':
-        return 'rgba(217, 119, 6, 0.12)';
-      case 'message':
-        return 'rgba(37, 99, 235, 0.12)';
-      case 'review':
-        return 'rgba(234, 179, 8, 0.15)';
-      case 'sold':
-        return 'rgba(45, 155, 111, 0.12)';
-      case 'system':
-      default:
-        return COLORS.primaryMuted;
-    }
+  const getIconBg = (item: NotificationItem) => {
+    const type = item.eventType || item.type || '';
+    if (type.includes('CANCELLED') || type.includes('REJECTED')) return 'rgba(239, 68, 68, 0.12)';
+    if (type.includes('DELIVERED') || type.includes('COMPLETED')) return 'rgba(45, 155, 111, 0.12)';
+    if (type === 'NEW_MESSAGE' || type === 'message') return 'rgba(37, 99, 235, 0.12)';
+    if (type === 'NEW_RATING' || type === 'review') return 'rgba(234, 179, 8, 0.15)';
+    if (type.includes('PRODUCT') || type.includes('BUYER_REQUEST')) return 'rgba(217, 119, 6, 0.12)';
+    return COLORS.primaryMuted;
   };
 
   return (
@@ -253,7 +279,7 @@ export default function NotificationsScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ gap: 8, marginTop: 16 }}
         >
-          {(['all', 'unread', 'offers', 'system'] as FilterTab[]).map((tab) => {
+          {(['all', 'unread', 'orders', 'messages', 'system'] as FilterTab[]).map((tab) => {
             const isActive = activeTab === tab;
             const label = tab.charAt(0).toUpperCase() + tab.slice(1);
             return (
@@ -298,8 +324,8 @@ export default function NotificationsScreen() {
             {filteredNotifications.map((item) => (
               <TouchableOpacity
                 key={item.id}
-                onPress={() => handleToggleRead(item.id)}
-                activeOpacity={0.9}
+                onPress={() => handleNotificationPress(item)}
+                activeOpacity={0.85}
                 style={{
                   backgroundColor: item.read ? COLORS.surface : 'rgba(232, 93, 38, 0.04)',
                   borderRadius: 16,
@@ -317,12 +343,12 @@ export default function NotificationsScreen() {
                     width: 44,
                     height: 44,
                     borderRadius: 14,
-                    backgroundColor: getIconBg(item.type),
+                    backgroundColor: getIconBg(item),
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}
                 >
-                  {getIcon(item.type)}
+                  {getIcon(item)}
                 </View>
 
                 {/* Content */}
@@ -346,15 +372,17 @@ export default function NotificationsScreen() {
                     >
                       {item.title}
                     </Text>
-                    <Text
-                      style={{
-                        fontSize: 12,
-                        fontFamily: 'Nunito_400Regular',
-                        color: COLORS.textTertiary,
-                      }}
-                    >
-                      {item.time}
-                    </Text>
+                    {item.created_at && (
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontFamily: 'Nunito_400Regular',
+                          color: COLORS.textTertiary,
+                        }}
+                      >
+                        {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    )}
                   </View>
 
                   <Text
@@ -379,12 +407,13 @@ export default function NotificationsScreen() {
                         borderRadius: 5,
                         backgroundColor: COLORS.primary,
                         marginTop: 4,
+                        marginBottom: 8,
                       }}
                     />
                   )}
                   <TouchableOpacity
                     onPress={() => handleDeleteItem(item.id)}
-                    style={{ padding: 4, marginTop: item.read ? 0 : 8 }}
+                    style={{ padding: 4 }}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
                     <Trash2 size={15} color={COLORS.textTertiary} />
@@ -432,7 +461,7 @@ export default function NotificationsScreen() {
                 maxWidth: 260,
               }}
             >
-              We'll notify you when you get updates on offers, messages, or price drops.
+              We'll notify you when you get updates on orders, messages, ratings, or matches.
             </Text>
           </View>
         )}

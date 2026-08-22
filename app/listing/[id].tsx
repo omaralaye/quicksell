@@ -32,13 +32,16 @@ import {
 import { BlurView } from 'expo-blur';
 import { COLORS } from '@/constants/Colors';
 import { getRelativeTime } from '@/utils/mockData';
-import { fetchListing, ListingWithSeller, updateListingStatus, deleteListing } from '@/utils/supabase';
+import { fetchListing, ListingWithSeller, updateListingStatus, deleteListing, initiateOrderWithReservation } from '@/utils/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { getOrCreateConversation, sendMessage } from '@/services/chat';
+
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { ConditionBadge } from '@/components/ConditionBadge';
 import { StarRating } from '@/components/StarRating';
-
-const DEMO_CHAT_ID = 'c0000000-0000-0000-0000-000000000001';
+import { SkeletonListingDetail } from '@/components/SkeletonCard';
+import { ErrorState } from '@/components/ErrorState';
+import { formatPrice, formatPriceCard } from '@/utils/currency';
 
 function resolveImageSource(source: string | undefined): ImageSourcePropType {
   if (!source) return { uri: '' };
@@ -98,9 +101,28 @@ export default function ListingDetailScreen() {
     if (sellerId) router.push(`/seller/${sellerId}`);
   };
 
-  const handleMessage = () => {
+  const handleMessage = async () => {
     console.log('[ListingDetail] Message Seller pressed for listing:', listing?.id);
-    router.push(`/chat/${DEMO_CHAT_ID}`);
+    if (!user) {
+      Alert.alert('Sign in required', 'Please sign in to message the seller.');
+      return;
+    }
+    const sellerId = listing?.seller_id ?? listing?.seller?.id;
+    if (!listing || !sellerId) {
+      Alert.alert('Error', 'Seller information is missing.');
+      return;
+    }
+    if (user.id === sellerId) {
+      Alert.alert('Notice', 'This is your own listing.');
+      return;
+    }
+    try {
+      const convId = await getOrCreateConversation(user.id, sellerId, listing.id);
+      router.push(`/chat/${convId}`);
+    } catch (err: any) {
+      console.error('[ListingDetail] handleMessage error:', err);
+      Alert.alert('Error', err?.message ?? 'Could not open chat with seller.');
+    }
   };
 
   const handleOpenOfferModal = () => {
@@ -115,7 +137,36 @@ export default function ListingDetailScreen() {
     setOfferAmount(discounted.toString());
   };
 
-  const handleSubmitOffer = () => {
+  const handleBuyNow = async () => {
+    if (!listing) return;
+    if (!user) {
+      Alert.alert('Sign in required', 'Please sign in to buy this item.');
+      return;
+    }
+    try {
+      const reservation = await initiateOrderWithReservation({
+        buyerId: user.id,
+        listingId: listing.id,
+        requestedQty: 1,
+        reservationMinutes: 15,
+      });
+      Alert.alert(
+        'Item Reserved!',
+        `You have 15 minutes to complete payment before your reservation expires.\nTotal: $${reservation.total_amount.toLocaleString()}`,
+        [
+          { text: 'View Order', onPress: () => router.push(`/orders/${reservation.order_id}`) },
+          { text: 'OK', style: 'cancel' }
+        ]
+      );
+      // Reload listing details
+      const updated = await fetchListing(listing.id);
+      setListing(updated);
+    } catch (err: any) {
+      Alert.alert('Reservation Error', err?.message ?? 'Could not reserve item.');
+    }
+  };
+
+  const handleSubmitOffer = async () => {
     const amountNum = parseFloat(offerAmount);
     if (!amountNum || isNaN(amountNum) || amountNum <= 0) {
       Alert.alert('Invalid Offer', 'Please enter a valid offer amount.');
@@ -125,13 +176,31 @@ export default function ListingDetailScreen() {
     console.log('[ListingDetail] Offer submitted:', { amount: amountNum, note: offerNote });
     setOfferSubmitted(true);
 
+    const sellerId = listing?.seller_id ?? listing?.seller?.id;
+    let convId: string | null = null;
+    if (user && listing && sellerId && user.id !== sellerId) {
+      try {
+        const activeConvId = await getOrCreateConversation(user.id, sellerId, listing.id);
+        convId = activeConvId;
+      const offerText = `🏷️ OFFER SENT: UGX ${amountNum.toLocaleString()}${offerNote ? `\nNote: ${offerNote}` : ''}`;
+        await sendMessage(activeConvId, user.id, offerText);
+      } catch (err) {
+        console.error('[ListingDetail] Error creating conversation for offer:', err);
+      }
+    }
+
     setTimeout(() => {
       setOfferModalVisible(false);
       Alert.alert(
         'Offer Sent!',
-        `Your offer of $${amountNum.toLocaleString()} has been sent to ${listing?.seller?.display_name ?? 'the seller'}.`,
+        `Your offer of UGX ${amountNum.toLocaleString()} has been sent to ${listing?.seller?.display_name ?? 'the seller'}.`,
         [
-          { text: 'View Chat', onPress: () => router.push(`/chat/${DEMO_CHAT_ID}`) },
+          {
+            text: 'View Chat',
+            onPress: () => {
+              if (convId) router.push(`/chat/${convId}`);
+            },
+          },
           { text: 'OK', style: 'cancel' },
         ]
       );
@@ -142,14 +211,14 @@ export default function ListingDetailScreen() {
   const handleToggleSold = async () => {
     if (!listing) return;
     setSellerMenuVisible(false);
-    const newStatus = listing.status === 'sold' ? 'active' : 'sold';
+    const newStatus = listing.status === 'SOLD' ? 'ACTIVE' : 'SOLD';
     console.log('[ListingDetail] Updating status to:', newStatus);
     try {
       await updateListingStatus(listing.id, newStatus);
       setListing((prev) => (prev ? { ...prev, status: newStatus } : prev));
       Alert.alert(
-        newStatus === 'sold' ? 'Marked as Sold!' : 'Listing Reactivated',
-        newStatus === 'sold'
+        newStatus === 'SOLD' ? 'Marked as Sold!' : 'Listing Reactivated',
+        newStatus === 'SOLD'
           ? 'This listing is now marked as Sold and will be updated everywhere for buyers.'
           : 'Your listing is active again and visible to buyers.'
       );
@@ -161,14 +230,14 @@ export default function ListingDetailScreen() {
   const handleToggleOutOfStock = async () => {
     if (!listing) return;
     setSellerMenuVisible(false);
-    const newStatus = listing.status === 'out_of_stock' ? 'active' : 'out_of_stock';
+    const newStatus = listing.status === 'ARCHIVED' ? 'ACTIVE' : 'ARCHIVED';
     console.log('[ListingDetail] Updating status to:', newStatus);
     try {
       await updateListingStatus(listing.id, newStatus);
       setListing((prev) => (prev ? { ...prev, status: newStatus } : prev));
       Alert.alert(
-        newStatus === 'out_of_stock' ? 'Marked Out of Stock' : 'Listing Reactivated',
-        newStatus === 'out_of_stock'
+        newStatus === 'ARCHIVED' ? 'Marked Out of Stock' : 'Listing Reactivated',
+        newStatus === 'ARCHIVED'
           ? 'This item is now marked as Out of Stock.'
           : 'Your listing is active again and visible to buyers.'
       );
@@ -201,16 +270,28 @@ export default function ListingDetailScreen() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: COLORS.background, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ fontFamily: 'Nunito_600SemiBold', color: COLORS.textSecondary }}>Loading…</Text>
+      <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+        <SkeletonListingDetail />
       </View>
     );
   }
 
   if (!listing) {
     return (
-      <View style={{ flex: 1, backgroundColor: COLORS.background, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ fontFamily: 'Nunito_600SemiBold', color: COLORS.textSecondary }}>Listing not found</Text>
+      <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+        <View style={{ position: 'absolute', top: insets.top + 12, left: 16, zIndex: 10 }}>
+          <TouchableOpacity
+            onPress={handleBack}
+            style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.surfaceSecondary, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <ArrowLeft size={20} color={COLORS.text} />
+          </TouchableOpacity>
+        </View>
+        <ErrorState
+          title="Listing not found"
+          message="This listing may have been removed by the seller."
+          onRetry={handleBack}
+        />
       </View>
     );
   }
@@ -222,12 +303,12 @@ export default function ListingDetailScreen() {
     listing.seller_id === 'user-me' ||
     !listing.seller_id; // Default demo seller capability for easy testing
 
-  const isSold = listing.status === 'sold';
-  const isOutOfStock = listing.status === 'out_of_stock';
+  const isSold = listing.status === 'SOLD';
+  const isOutOfStock = listing.status === 'ARCHIVED';
   const isAvailable = !isSold && !isOutOfStock;
 
   const postedDate = getRelativeTime(listing.created_at ?? '');
-  const priceDisplay = `$${Number(listing.price).toLocaleString()}`;
+  const priceDisplay = formatPriceCard(Number(listing.price), 'UGX');
   const sellerName = listing.seller?.display_name ?? 'Seller';
   const sellerRegion = listing.seller?.region ?? '';
   const sellerRating = listing.seller?.rating ?? 0;
@@ -524,41 +605,37 @@ export default function ListingDetailScreen() {
               />
               <View style={{ flex: 1, gap: 3 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text
-                    style={{
-                      fontSize: 16,
-                      fontWeight: '700',
-                      fontFamily: 'Nunito_700Bold',
-                      color: COLORS.text,
-                    }}
-                  >
+                  <Text style={{ fontSize: 16, fontFamily: 'Nunito_700Bold', color: COLORS.text }}>
                     {sellerName}
                   </Text>
                   {isSeller && (
-                    <View
-                      style={{
-                        backgroundColor: COLORS.primaryMuted,
-                        borderRadius: 6,
-                        paddingHorizontal: 6,
-                        paddingVertical: 2,
-                      }}
-                    >
-                      <Text style={{ fontSize: 10, fontFamily: 'Nunito_700Bold', color: COLORS.primary }}>
-                        YOU (SELLER)
-                      </Text>
+                    <View style={{ backgroundColor: COLORS.primaryMuted, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                      <Text style={{ fontSize: 10, fontFamily: 'Nunito_700Bold', color: COLORS.primary }}>YOU</Text>
                     </View>
                   )}
                 </View>
-                <Text
-                  style={{
-                    fontSize: 13,
-                    fontFamily: 'Nunito_400Regular',
-                    color: COLORS.textSecondary,
-                  }}
-                >
-                  {sellerRegion}
-                </Text>
+                {sellerRegion ? (
+                  <Text style={{ fontSize: 12, fontFamily: 'Nunito_400Regular', color: COLORS.textSecondary }}>
+                    📍 {sellerRegion}
+                  </Text>
+                ) : null}
                 <StarRating rating={sellerRating} size={13} />
+                {/* Trust signals */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                  {(listing.seller as any)?.total_sales != null && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                      <ShieldCheck size={12} color={COLORS.accent} />
+                      <Text style={{ fontSize: 11, fontFamily: 'Nunito_600SemiBold', color: COLORS.accent }}>
+                        {(listing.seller as any).total_sales} sales
+                      </Text>
+                    </View>
+                  )}
+                  {(listing.seller as any)?.created_at && (
+                    <Text style={{ fontSize: 11, fontFamily: 'Nunito_400Regular', color: COLORS.textTertiary }}>
+                      · Member since {new Date((listing.seller as any).created_at).getFullYear()}
+                    </Text>
+                  )}
+                </View>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <Text
@@ -629,7 +706,7 @@ export default function ListingDetailScreen() {
         }}
       >
         {isAvailable ? (
-          <View style={{ flexDirection: 'row', gap: 10 }}>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
             {/* Message Seller Button */}
             <AnimatedPressable
               onPress={handleMessage}
@@ -638,28 +715,28 @@ export default function ListingDetailScreen() {
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 6,
+                gap: 4,
                 borderRadius: 14,
                 height: 50,
                 borderWidth: 1.5,
-                borderColor: COLORS.primary,
-                backgroundColor: 'transparent',
-                paddingHorizontal: 8,
+                borderColor: COLORS.border,
+                backgroundColor: COLORS.surfaceSecondary,
+                paddingHorizontal: 6,
               }}
             >
-              <MessageCircle size={18} color={COLORS.primary} />
+              <MessageCircle size={16} color={COLORS.text} />
               <Text
                 numberOfLines={1}
                 adjustsFontSizeToFit
-                minimumFontScale={0.85}
+                minimumFontScale={0.8}
                 style={{
-                  fontSize: 15,
+                  fontSize: 13,
                   fontWeight: '700',
                   fontFamily: 'Nunito_700Bold',
-                  color: COLORS.primary,
+                  color: COLORS.text,
                 }}
               >
-                Message Seller
+                Chat
               </Text>
             </AnimatedPressable>
 
@@ -671,26 +748,59 @@ export default function ListingDetailScreen() {
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 6,
+                gap: 4,
+                borderRadius: 14,
+                height: 50,
+                borderWidth: 1.5,
+                borderColor: COLORS.primary,
+                backgroundColor: COLORS.primaryMuted,
+                paddingHorizontal: 6,
+              }}
+            >
+              <DollarSign size={16} color={COLORS.primary} />
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+                style={{
+                  fontSize: 13,
+                  fontWeight: '700',
+                  fontFamily: 'Nunito_700Bold',
+                  color: COLORS.primary,
+                }}
+              >
+                Offer
+              </Text>
+            </AnimatedPressable>
+
+            {/* Buy Now (Reserve) Button */}
+            <AnimatedPressable
+              onPress={handleBuyNow}
+              style={{
+                flex: 1.3,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
                 borderRadius: 14,
                 height: 50,
                 backgroundColor: COLORS.primary,
                 paddingHorizontal: 8,
               }}
             >
-              <DollarSign size={18} color="#FFFFFF" />
+              <ShieldCheck size={17} color="#FFFFFF" />
               <Text
                 numberOfLines={1}
                 adjustsFontSizeToFit
-                minimumFontScale={0.85}
+                minimumFontScale={0.8}
                 style={{
-                  fontSize: 15,
+                  fontSize: 14,
                   fontWeight: '700',
                   fontFamily: 'Nunito_700Bold',
                   color: '#FFFFFF',
                 }}
               >
-                Make Offer
+                Buy Now
               </Text>
             </AnimatedPressable>
           </View>

@@ -13,9 +13,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, MapPin, ShoppingBag, TrendingUp, MessageCircle } from 'lucide-react-native';
 import { COLORS } from '@/constants/Colors';
 import { fetchSellerProfile, fetchSellerListings, ListingWithSeller } from '@/utils/supabase';
+import { fetchUserReputation, type UserReputationMetrics } from '@/services/reputation';
+import { TrustBadge } from '@/components/TrustBadge';
+import { useAuth } from '@/contexts/AuthContext';
+import { getOrCreateConversation } from '@/services/chat';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 import { ListingCard } from '@/components/ListingCard';
 import { StarRating } from '@/components/StarRating';
+import { Alert } from 'react-native';
 
 function resolveImageSource(source: string | undefined): ImageSourcePropType {
   if (!source) return { uri: '' };
@@ -39,23 +44,27 @@ export default function SellerProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const { user } = useAuth();
   const headerOpacity = useRef(new Animated.Value(0)).current;
   const headerTranslateY = useRef(new Animated.Value(16)).current;
 
   const [profile, setProfile] = useState<SellerProfile | null>(null);
   const [listings, setListings] = useState<ListingWithSeller[]>([]);
+  const [reputation, setReputation] = useState<UserReputationMetrics | null>(null);
 
   useEffect(() => {
     if (!id) return;
-    console.log('[SellerProfile] Fetching profile and listings for:', id);
+    console.log('[SellerProfile] Fetching profile, listings, and reputation for:', id);
 
     Promise.all([
       fetchSellerProfile(id),
       fetchSellerListings(id),
+      fetchUserReputation(id).catch(() => null),
     ])
-      .then(([profileData, listingsData]) => {
+      .then(([profileData, listingsData, repData]) => {
         setProfile(profileData as SellerProfile);
         setListings(listingsData);
+        setReputation(repData);
         Animated.parallel([
           Animated.timing(headerOpacity, { toValue: 1, duration: 400, delay: 100, useNativeDriver: true }),
           Animated.timing(headerTranslateY, { toValue: 0, duration: 400, delay: 100, useNativeDriver: true }),
@@ -73,9 +82,25 @@ export default function SellerProfileScreen() {
     router.back();
   };
 
-  const handleMessage = () => {
+  const handleMessage = async () => {
     console.log('[SellerProfile] Message seller pressed:', id);
-    router.push('/chat/c0000000-0000-0000-0000-000000000001');
+    if (!user) {
+      Alert.alert('Sign in required', 'Please sign in to message this seller.');
+      return;
+    }
+    if (!id) return;
+    if (user.id === id) {
+      Alert.alert('Notice', 'This is your own profile.');
+      return;
+    }
+    try {
+      const firstListingId = listings.length > 0 ? listings[0].id : null;
+      const convId = await getOrCreateConversation(user.id, id, firstListingId);
+      router.push(`/chat/${convId}`);
+    } catch (err: any) {
+      console.error('[SellerProfile] Error starting chat:', err);
+      Alert.alert('Error', err?.message ?? 'Could not start conversation with seller.');
+    }
   };
 
   const sellerName = profile?.display_name ?? '';
@@ -184,7 +209,9 @@ export default function SellerProfileScreen() {
                   {sellerRegion}
                 </Text>
               </View>
-              <StarRating rating={sellerRating} size={15} />
+              <View style={{ marginTop: 4 }}>
+                <TrustBadge metrics={reputation ?? { seller_rating: sellerRating }} />
+              </View>
               <Text
                 style={{
                   fontSize: 12,

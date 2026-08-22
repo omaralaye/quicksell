@@ -13,7 +13,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.placeholder.app",
+      "bundleIdentifier": "com.quicksell.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -23,7 +23,11 @@
         "foregroundImage": "./assets/images/app-icon-aie.png",
         "backgroundColor": "#FFFFFF"
       },
-      "package": "com.placeholder.app"
+      "package": "com.quicksell.app",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/images/newly.png",
@@ -35,14 +39,23 @@
       "expo-web-browser",
       "expo-secure-store",
       "expo-apple-authentication",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow NearSwap to access your location to show nearby marketplace items and sellers."
+        }
+      ]
     ],
     "scheme": "nearswap",
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
-      "router": {}
+      "router": {},
+      "eas": {
+        "projectId": "af8708c0-4833-494c-adbf-a39a879b0df3"
+      }
     }
   }
 }

@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as AppleAuthentication from 'expo-apple-authentication';
-import { supabase } from '@/app/integrations/supabase/client';
+import { supabase } from '@/integrations/supabase/client';
 import type { User, Session } from '@supabase/supabase-js';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -30,21 +30,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     console.log('[AuthContext] Initializing — fetching session');
+    let isMounted = true;
+
+    // Safety timeout: Guarantee loading state resolves even if network/storage hangs
+    const authTimeout = setTimeout(() => {
+      if (isMounted) {
+        console.warn('[AuthContext] Session fetch timed out — unblocking UI');
+        setLoading(false);
+      }
+    }, 3000);
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!isMounted) return;
+      clearTimeout(authTimeout);
       console.log('[AuthContext] Initial session:', session ? `user=${session.user.id}` : 'none');
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
+    }).catch((err) => {
+      console.error('[AuthContext] getSession error:', err);
+      if (isMounted) {
+        clearTimeout(authTimeout);
+        setLoading(false);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!isMounted) return;
       console.log('[AuthContext] Auth state changed:', _event, session ? `user=${session.user.id}` : 'none');
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      clearTimeout(authTimeout);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signInWithEmail = async (email: string, password: string) => {

@@ -2,7 +2,6 @@ import "react-native-reanimated";
 import React, { useEffect } from "react";
 import { Stack, Redirect } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { SystemBars } from "react-native-edge-to-edge";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useColorScheme, Alert, View, ActivityIndicator } from "react-native";
@@ -65,8 +64,31 @@ const CustomDarkTheme: Theme = {
   },
 };
 
+import { useRealtimeSync } from "@/hooks/useRealtimeSync";
+
+import { useRouter, useSegments } from "expo-router";
+
 function RootLayoutNav() {
   const { user, loading } = useAuth();
+  const segments = useSegments();
+  const router = useRouter();
+  
+  // Initialize global real-time listeners for the authenticated user
+  useRealtimeSync();
+
+  useEffect(() => {
+    if (loading) return;
+
+    const inAuthGroup = segments[0] === "auth";
+
+    if (!user && !inAuthGroup) {
+      // Redirect to the sign-in page.
+      router.replace("/auth");
+    } else if (user && inAuthGroup) {
+      // Redirect away from the sign-in page.
+      router.replace("/(tabs)" as never);
+    }
+  }, [user, loading, segments, router]);
 
   if (loading) {
     return (
@@ -85,7 +107,9 @@ function RootLayoutNav() {
       <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="my-listings" options={{ headerShown: false }} />
       <Stack.Screen name="notifications" options={{ headerShown: false }} />
-      {!user && <Redirect href="/auth" />}
+      <Stack.Screen name="seller-hub" options={{ headerShown: false }} />
+      <Stack.Screen name="orders/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="buyer-requests" options={{ headerShown: false }} />
     </Stack>
   );
 }
@@ -93,18 +117,30 @@ function RootLayoutNav() {
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const networkState = useNetworkState();
-  const [loaded] = useFonts({
+  const [loaded, error] = useFonts({
     Nunito_400Regular,
     Nunito_600SemiBold,
     Nunito_700Bold,
     Nunito_800ExtraBold,
   });
 
+  const [isReady, setIsReady] = React.useState(false);
+
   useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
+    // Safety timeout: Ensure splash screen is hidden and app is ready within 2.5 seconds max
+    const timer = setTimeout(() => {
+      setIsReady(true);
+      SplashScreen.hideAsync().catch(() => {});
+    }, 2500);
+
+    if (loaded || error) {
+      clearTimeout(timer);
+      setIsReady(true);
+      SplashScreen.hideAsync().catch(() => {});
     }
-  }, [loaded]);
+
+    return () => clearTimeout(timer);
+  }, [loaded, error]);
 
   React.useEffect(() => {
     if (
@@ -128,12 +164,9 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <AuthProvider>
             <WidgetProvider>
-              <GestureHandlerRootView>
-                {loaded ? (
-                  <>
-                    <RootLayoutNav />
-                    <SystemBars style="auto" />
-                  </>
+              <GestureHandlerRootView style={{ flex: 1 }}>
+                {isReady ? (
+                  <RootLayoutNav />
                 ) : (
                   <View style={{ flex: 1, backgroundColor: "#F7F5F2" }} />
                 )}

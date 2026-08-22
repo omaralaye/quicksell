@@ -27,14 +27,11 @@ yarn-error.*
 
 *.tsbuildinfo
 
-.natively/
-
 android/
 ios/
 
-package-lock.json
-yarn.lock
-# Python
+# Package lockfiles included for EAS Build
+
 .venv/
 venv/
 __pycache__/

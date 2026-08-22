@@ -13,10 +13,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronRight, LogOut, Pencil, MapPin, Package, ShoppingBag, Star } from 'lucide-react-native';
+import { ChevronRight, LogOut, Pencil, MapPin, Package, ShoppingBag, Star, Store } from 'lucide-react-native';
 import { COLORS } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/app/integrations/supabase/client';
+import { supabase } from '@/integrations/supabase/client';
 import { AnimatedPressable } from '@/components/AnimatedPressable';
 
 function resolveImageSource(source: string | number | ImageSourcePropType | undefined): ImageSourcePropType {
@@ -72,12 +72,13 @@ export default function ProfileScreen() {
           .from('profiles')
           .select('*')
           .eq('id', user.id)
-          .single();
+          .maybeSingle();
         if (error) {
           console.error('[Profile] fetchProfile error:', error.message);
         } else {
-          console.log('[Profile] Profile loaded:', data?.display_name);
-          setProfile(data as Profile);
+          const profileData = data as Profile | null;
+          console.log('[Profile] Profile loaded:', profileData?.display_name);
+          setProfile(profileData);
         }
       } finally {
         setProfileLoading(false);
@@ -119,8 +120,7 @@ export default function ProfileScreen() {
     setSaving(true);
     const { error } = await supabase
       .from('profiles')
-      .update({ display_name: editName, region: editRegion })
-      .eq('id', user.id);
+      .upsert({ id: user.id, display_name: editName, region: editRegion });
 
     if (error) {
       console.error('[Profile] Save profile error:', error.message);
@@ -290,11 +290,66 @@ export default function ProfileScreen() {
               <StatCard icon={<Star size={18} color="#D97706" />} value={ratingDisplay} label="Rating" />
             </View>
 
+            {/* Seller Hub CTA */}
+            <AnimatedPressable
+              onPress={() => {
+                console.log('[Profile] Seller Hub pressed');
+                router.push('/seller-hub' as any);
+              }}
+              style={{
+                marginHorizontal: 16,
+                marginTop: 20,
+                backgroundColor: COLORS.primary,
+                borderRadius: 16,
+                paddingHorizontal: 20,
+                paddingVertical: 16,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 14,
+              }}
+            >
+              <View
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 12,
+                  backgroundColor: 'rgba(255,255,255,0.2)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Store size={20} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontSize: 16,
+                    fontFamily: 'Nunito_800ExtraBold',
+                    color: '#FFFFFF',
+                    letterSpacing: -0.2,
+                  }}
+                >
+                  Seller Hub
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontFamily: 'Nunito_400Regular',
+                    color: 'rgba(255,255,255,0.75)',
+                    marginTop: 1,
+                  }}
+                >
+                  Manage listings, orders & earnings
+                </Text>
+              </View>
+              <ChevronRight size={18} color="rgba(255,255,255,0.8)" />
+            </AnimatedPressable>
+
             {/* Actions */}
             <View
               style={{
                 marginHorizontal: 16,
-                marginTop: 20,
+                marginTop: 12,
                 backgroundColor: COLORS.surface,
                 borderRadius: 16,
                 borderWidth: 1,

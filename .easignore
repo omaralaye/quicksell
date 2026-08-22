@@ -1,0 +1,3 @@
+# Ignore bun lockfile for EAS build so it uses npm with legacy-peer-deps
+bun.lock
+bunfig.toml
